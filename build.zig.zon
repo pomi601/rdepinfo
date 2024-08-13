@@ -1,0 +1,20 @@
+.{
+    .name = "rdepinfo",
+    .version = "0.0.0",
+    .minimum_zig_version = "0.13.0",
+    .dependencies = .{
+        .cmdline = .{
+            .url = "https://github.com/anticrisis/zig-cmdline/archive/refs/tags/v0.3.0.tar.gz",
+            .hash = "1220caf25a7fced614c18cc407e2d9e0dd98e111d145c791fb170aab5fe2158d73bf",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        // For example...
+        //"LICENSE",
+        //"README.md",
+    },
+}
