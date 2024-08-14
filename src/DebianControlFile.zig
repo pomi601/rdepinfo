@@ -96,14 +96,11 @@ pub fn parse(alloc: Allocator, bs: []const u8) !Self {
                 // look forward, a space or tab means a continuation
                 if (pos < bs.len - 1 and bs[pos + 1] == 0x20 or bs[pos + 1] == 0x09) continue;
 
-                // line ends.
-                // look back and chop \r if any
-
-                const line = bs[line_start..(if (bs[pos - 1] == '\r') pos - 1 else pos)];
+                // line ends
+                const line = bs[line_start..pos];
 
                 if (line.len == 0) {
                     // field ends.
-
                     // if no lines in stanza, don't end it. Ignores
                     // multiple contiguous newlines at start of file
                     // or between stanzas.
