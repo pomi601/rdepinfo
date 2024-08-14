@@ -7,7 +7,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const Self = @This();
 
-const Field = struct {
+pub const Field = struct {
     key: []const u8,
     val: []const u8,
 };
@@ -16,30 +16,34 @@ const StanzaRaw = struct {
     lines: [][]const u8,
 };
 
-const Stanza = struct {
-    fields: std.ArrayList(Field),
+pub const Stanza = struct {
+    fields: []Field, // owned
 
-    pub fn fromRaw(alloc: Allocator, raw: StanzaRaw) error{ InvalidFormat, OutOfMemory }!Stanza {
+    pub fn fromRaw(alloc: Allocator, raw: StanzaRaw) (Allocator.Error || error{InvalidFormat})!Stanza {
         var fields = std.ArrayList(Field).init(alloc);
         for (raw.lines) |line| {
             if (std.mem.indexOfScalar(u8, line, ':')) |pos| {
                 if (pos + 1 >= line.len) return error.InvalidFormat;
 
                 try fields.append(Field{
-                    .key = line[0 .. pos - 1],
-                    .val = line[pos + 1 ..],
+                    .key = line[0..pos],
+                    .val = std.mem.trim(u8, line[pos + 1 ..], &std.ascii.whitespace),
                 });
                 continue;
             }
             return error.InvalidFormat;
         }
 
-        return .{ .fields = fields };
+        return .{ .fields = try fields.toOwnedSlice() };
     }
 
-    pub fn deinit(self: *Stanza) void {
-        self.fields.deinit();
+    pub fn deinit(self: *Stanza, alloc: Allocator) void {
+        alloc.free(self.fields);
         self.* = undefined;
+    }
+
+    pub fn clone(self: Stanza, alloc: Allocator) Allocator.Error!Stanza {
+        return .{ .fields = try alloc.dupe(Field, self.fields) };
     }
 };
 
@@ -47,7 +51,7 @@ stanzas: []Stanza,
 
 pub fn deinit(self: *Self, alloc: Allocator) void {
     for (self.stanzas) |*stanza| {
-        stanza.deinit();
+        stanza.deinit(alloc);
     }
     alloc.free(self.stanzas);
     self.* = undefined;
@@ -110,7 +114,6 @@ pub fn parse(alloc: Allocator, bs: []const u8) !Self {
                         lines.clearRetainingCapacity();
                     }
                 } else {
-                    std.debug.print("Appending line: {s}\n", .{line});
                     try lines.append(line);
                 }
                 line_start = pos + 1;
@@ -149,7 +152,7 @@ pub fn debugPrint(self: *const Self) void {
     for (self.stanzas, 1..) |stanza, i| {
         std.debug.print("  {}:\n", .{i});
 
-        for (stanza.fields.items) |field| {
+        for (stanza.fields) |field| {
             std.debug.print("  {s}: {s}\n", .{ field.key, field.val });
         }
     }
@@ -169,19 +172,17 @@ test "parse" {
         \\
         \\NextStanza: val1 val2
     ;
-    std.debug.print("Length of input string: {}\n", .{data.len});
 
     const alloc = std.testing.allocator;
     var res = try Self.parse(alloc, data);
     defer res.deinit(alloc);
 
-    std.debug.print("\nInput:\n{s}\n", .{data});
-
-    res.debugPrint();
-
     try testing.expectEqual(2, res.stanzas.len);
-    try testing.expectEqual(2, res.stanzas[0].fields.items.len);
-    try testing.expectEqual(1, res.stanzas[1].fields.items.len);
+    try testing.expectEqual(2, res.stanzas[0].fields.len);
+    try testing.expectEqual(1, res.stanzas[1].fields.len);
+
+    try testing.expectEqualStrings("Field1", res.stanzas[0].fields[0].key);
+    try testing.expectEqualStrings("val1 val2\n continues\n keeps continuing", res.stanzas[0].fields[0].val);
 }
 
 test "misformed" {

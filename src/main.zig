@@ -56,4 +56,6 @@ pub fn main() !void {
 
 test main {
     _ = @import("DebianControlFile.zig");
+    _ = @import("version.zig");
+    _ = @import("RDescription.zig");
 }
