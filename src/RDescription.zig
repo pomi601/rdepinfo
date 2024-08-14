@@ -14,34 +14,43 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const DCF = @import("DebianControlFile.zig");
 const version = @import("version.zig");
-const Self = @This();
+const NameAndVersionConstraint = version.NameAndVersionConstraint;
 
 stanza: DCF.Stanza,
-depends: []version.NameAndVersionConstraint = &.{},
-suggests: []version.NameAndVersionConstraint = &.{},
-imports: []version.NameAndVersionConstraint = &.{},
-linkingTo: []version.NameAndVersionConstraint = &.{},
+depends: []NameAndVersionConstraint = &.{},
+suggests: []NameAndVersionConstraint = &.{},
+imports: []NameAndVersionConstraint = &.{},
+linkingTo: []NameAndVersionConstraint = &.{},
+
+pub fn deinit(self: *Self, alloc: Allocator) void {
+    self.stanza.deinit(alloc);
+    alloc.free(self.depends);
+    alloc.free(self.suggests);
+    alloc.free(self.imports);
+    alloc.free(self.linkingTo);
+    self.* = undefined;
+}
 
 pub fn fromStanza(alloc: Allocator, stanza: DCF.Stanza) !Self {
     const my_stanza = try stanza.clone(alloc);
-    var list = std.ArrayList(version.NameAndVersionConstraint).init(alloc);
+    var list = std.ArrayList(NameAndVersionConstraint).init(alloc);
     defer list.deinit();
-    var depends: []version.NameAndVersionConstraint = &.{};
-    var suggests: []version.NameAndVersionConstraint = &.{};
-    var imports: []version.NameAndVersionConstraint = &.{};
-    var linkingTo: []version.NameAndVersionConstraint = &.{};
+    var depends: []NameAndVersionConstraint = &.{};
+    var suggests: []NameAndVersionConstraint = &.{};
+    var imports: []NameAndVersionConstraint = &.{};
+    var linkingTo: []NameAndVersionConstraint = &.{};
 
-    if (getField(my_stanza.fields, "Depends")) |f| {
-        depends = try processValue(&list, f.val);
+    if (get_field(my_stanza.fields, "Depends")) |f| {
+        depends = try process_value(&list, f.val);
     }
-    if (getField(my_stanza.fields, "Suggests")) |f| {
-        suggests = try processValue(&list, f.val);
+    if (get_field(my_stanza.fields, "Suggests")) |f| {
+        suggests = try process_value(&list, f.val);
     }
-    if (getField(my_stanza.fields, "Imports")) |f| {
-        imports = try processValue(&list, f.val);
+    if (get_field(my_stanza.fields, "Imports")) |f| {
+        imports = try process_value(&list, f.val);
     }
-    if (getField(my_stanza.fields, "LinkingTo")) |f| {
-        linkingTo = try processValue(&list, f.val);
+    if (get_field(my_stanza.fields, "LinkingTo")) |f| {
+        linkingTo = try process_value(&list, f.val);
     }
 
     return .{
@@ -53,23 +62,24 @@ pub fn fromStanza(alloc: Allocator, stanza: DCF.Stanza) !Self {
     };
 }
 
-fn processValue(list: *std.ArrayList(version.NameAndVersionConstraint), val: []const u8) ![]version.NameAndVersionConstraint {
+fn get_field(fields: []DCF.Field, name: []const u8) ?DCF.Field {
+    for (fields) |f| {
+        if (std.mem.eql(u8, f.key, name)) return f;
+    }
+    return null;
+}
+
+fn process_value(
+    list: *std.ArrayList(NameAndVersionConstraint),
+    val: []const u8,
+) ![]NameAndVersionConstraint {
     list.clearRetainingCapacity();
     var it = std.mem.splitScalar(u8, val, ',');
     while (it.next()) |x_| {
         const x = std.mem.trim(u8, x_, &std.ascii.whitespace);
-        try list.append(try version.NameAndVersionConstraint.init(x));
+        try list.append(try NameAndVersionConstraint.init(x));
     }
     return try list.toOwnedSlice();
-}
-
-pub fn deinit(self: *Self, alloc: Allocator) void {
-    self.stanza.deinit(alloc);
-    alloc.free(self.depends);
-    alloc.free(self.suggests);
-    alloc.free(self.imports);
-    alloc.free(self.linkingTo);
-    self.* = undefined;
 }
 
 test "RDescription" {
@@ -169,9 +179,4 @@ test "RDescription" {
     try expectEqual(6, rd.depends[1].versionConstraint.version.?.patch);
 }
 
-fn getField(fields: []DCF.Field, name: []const u8) ?DCF.Field {
-    for (fields) |f| {
-        if (std.mem.eql(u8, f.key, name)) return f;
-    }
-    return null;
-}
+const Self = @This();
