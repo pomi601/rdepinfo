@@ -53,9 +53,3 @@ pub fn main() !void {
     const stdout = std.io.getStdOut();
     try stdout.writeAll(bytes);
 }
-
-test main {
-    _ = @import("DebianControlFile.zig");
-    _ = @import("version.zig");
-    _ = @import("RDescription.zig");
-}
