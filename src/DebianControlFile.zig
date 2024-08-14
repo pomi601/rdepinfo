@@ -14,11 +14,6 @@ const Field = struct {
 
 const StanzaRaw = struct {
     lines: [][]const u8,
-
-    pub fn deinit(self: *StanzaRaw, alloc: Allocator) void {
-        alloc.free(self.lines);
-        self.* = undefined;
-    }
 };
 
 const Stanza = struct {
@@ -67,7 +62,7 @@ pub fn parse(alloc: Allocator, bs: []const u8) !Self {
     var stanzas_raw = std.ArrayList(StanzaRaw).init(alloc);
     defer {
         for (stanzas_raw.items) |*raw| {
-            raw.deinit(alloc);
+            alloc.free(raw.lines);
         }
         stanzas_raw.deinit();
     }
