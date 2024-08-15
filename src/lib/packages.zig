@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const DCF = @import("DebianControlFile.zig");
+const RDescription = @import("RDescription.zig");
 
 test "PACKAGES.gz" {
     std.fs.cwd().access("PACKAGES.gz", .{}) catch return;
@@ -13,6 +14,17 @@ test "PACKAGES.gz" {
     }
 
     const dcf = res.dcf;
+    var entries = try std.ArrayList(RDescription).initCapacity(alloc, dcf.stanzas.len);
+    defer {
+        for (entries.items) |*e| {
+            e.deinit(alloc);
+        }
+        entries.deinit();
+    }
+
+    for (dcf.stanzas) |stanza| {
+        try entries.append(try RDescription.fromStanza(alloc, stanza));
+    }
 
     std.debug.print("Number of stanzas: {}\n", .{dcf.stanzas.len});
 }

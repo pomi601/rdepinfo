@@ -134,14 +134,43 @@ pub const NameAndVersionConstraint = struct {
     /// constraint. The format is `name (>= 3.2)` where the
     /// parenthetical expression is optional. The operators `=` and
     /// `==` are considered equal.
+    const InitOptions = struct {
+        max_size: usize = 128,
+    };
+
     pub fn init(string: []const u8) error{InvalidFormat}!NameAndVersionConstraint {
+        return initOptions(string, .{});
+    }
+
+    pub fn initOptions(string: []const u8, comptime opts: InitOptions) error{InvalidFormat}!NameAndVersionConstraint {
         const startsWith = std.mem.startsWith;
         const trim = std.mem.trim;
 
-        const in = trim(u8, string, &std.ascii.whitespace);
-        var name: []const u8 = "";
+        var buf: [opts.max_size]u8 = undefined;
+        const in_ = trim(u8, string, &std.ascii.whitespace);
 
-        var it = std.mem.splitScalar(u8, in, ' ');
+        // handle cases with no ' ' sep, e.g. 'name(>= 3.1)'. We need
+        // to use a local buffer to rewrite the string to one that
+        // conforms to our format.
+        const in = b: {
+            const openRound = std.mem.indexOfScalar(u8, in_, '(');
+            const space = std.mem.indexOfScalar(u8, in_, ' ');
+
+            if (openRound) |open| {
+                if (space == null or open < space.?) {
+                    // add a space to help the rest of the parsing
+                    if (open > opts.max_size - 2) return error.InvalidFormat;
+                    std.mem.copyForwards(u8, &buf, in_[0..open]);
+                    buf[open] = ' ';
+                    std.mem.copyForwards(u8, buf[open + 1 ..], in_[open..]);
+                    break :b buf[0 .. in_.len + 1];
+                }
+            }
+            break :b in_;
+        };
+
+        var name: []const u8 = "";
+        var it = std.mem.splitAny(u8, in, &std.ascii.whitespace);
         if (it.next()) |s| {
             name = s;
         } else return error.InvalidFormat;
@@ -158,10 +187,23 @@ pub const NameAndVersionConstraint = struct {
             );
             // version constraint: >= 2.0, etc
             if (!startsWithAny(u8, inner, "=<>")) return error.InvalidFormat;
-            it = std.mem.splitScalar(u8, inner, ' ');
-            const op = it.next();
-            const ver = it.next();
+            it = std.mem.splitAny(u8, inner, &std.ascii.whitespace);
+
+            // handle >=\n  1.0, i.e. multiple whitespace between op and version
+
+            var op: ?[]const u8 = "";
+            var ver: ?[]const u8 = "";
+
+            // skip contiguous whitespace
+            while (op != null and op.?.len == 0) op = it.next();
+            while (ver != null and ver.?.len == 0) ver = it.next();
+
             if (op == null or ver == null) return error.InvalidFormat;
+
+            if (ver.?.len == 0) {
+                std.debug.print("Found an empty version with an op: {s}\n", .{op.?});
+                return error.InvalidFormat;
+            }
 
             var constraint: Constraint = .any;
             const op_ = op.?;
@@ -176,6 +218,7 @@ pub const NameAndVersionConstraint = struct {
             } else if (startsWith(u8, op_, "=")) {
                 constraint = .eq;
             } else return error.InvalidFormat;
+
             return .{ .name = name, .versionConstraint = try VersionConstraint.initString(constraint, ver.?) };
         } else if (rest.len > 0) return error.InvalidFormat;
         return .{ .name = name };
@@ -211,8 +254,12 @@ test "NameAndVersionConstraint" {
     try expectEqual(.gte, v2.versionConstraint.constraint);
     try expectEqual(2, v2.versionConstraint.version.?.major);
 
+    const v3 = try NameAndVersionConstraint.init("x(= 1)");
+    try expectEqualStrings("x", v3.name);
+    try expectEqual(.eq, v3.versionConstraint.constraint);
+    try expectEqual(1, v3.versionConstraint.version.?.major);
+
     try expectError(error.InvalidFormat, NameAndVersionConstraint.init("(= 1)"));
-    try expectError(error.InvalidFormat, NameAndVersionConstraint.init("x(= 1)"));
     try expectError(error.InvalidFormat, NameAndVersionConstraint.init("x (=1)"));
 }
 
