@@ -4,6 +4,8 @@
 //!
 const std = @import("std");
 const testing = std.testing;
+const util = @import("util.zig");
+
 const Allocator = std.mem.Allocator;
 const Self = @This();
 
@@ -57,6 +59,35 @@ pub fn deinit(self: *Self, alloc: Allocator) void {
     self.* = undefined;
 }
 
+const ParseFileOptions = struct {
+    max_bytes: usize = std.math.maxInt(usize),
+};
+
+const ParseFileResult = struct {
+    buffer: []u8,
+    dcf: Self,
+};
+
+/// Read the entire file into memory, decompressing it if it a gzip
+/// file, and parse it. Caller must free the returned buffer with the
+/// same allocator.
+pub fn parseFileAlloc(
+    alloc: Allocator,
+    abs_or_rel_path: []const u8,
+    comptime opts: ParseFileOptions,
+) !ParseFileResult {
+    const bytes = b: {
+        if (try util.isGzipFile(abs_or_rel_path))
+            break :b try util.decompressGzipFile(alloc, abs_or_rel_path);
+
+        const file = try std.fs.cwd().openFile(abs_or_rel_path, .{});
+        defer file.close();
+        break :b try file.readToEndAlloc(alloc, opts.max_bytes);
+    };
+
+    return .{ .buffer = bytes, .dcf = try parse(alloc, bytes) };
+}
+
 pub fn parse(alloc: Allocator, bs: []const u8) !Self {
     var pos: usize = 0;
     var column_pos: usize = 0;
@@ -94,7 +125,9 @@ pub fn parse(alloc: Allocator, bs: []const u8) !Self {
                 in_comment = false;
 
                 // look forward, a space or tab means a continuation
-                if (pos < bs.len - 1 and bs[pos + 1] == 0x20 or bs[pos + 1] == 0x09) continue;
+                if (pos + 1 < bs.len) {
+                    if (bs[pos + 1] == 0x20 or bs[pos + 1] == 0x09) continue;
+                }
 
                 // line ends
                 const line = bs[line_start..pos];

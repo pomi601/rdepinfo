@@ -77,7 +77,19 @@ fn process_value(
     var it = std.mem.splitScalar(u8, val, ',');
     while (it.next()) |x_| {
         const x = std.mem.trim(u8, x_, &std.ascii.whitespace);
-        try list.append(try NameAndVersionConstraint.init(x));
+
+        // catch trailing commas, e.g. 'pack1, pack2,'
+        if (x.len == 0) continue;
+
+        try list.append(NameAndVersionConstraint.init(x) catch |err| {
+            switch (err) {
+                error.InvalidFormat => {
+                    std.debug.print("error.InvalidFormat: val: '{s}', x: '{s}'\n", .{ val, x });
+                    return err;
+                },
+                else => return err,
+            }
+        });
     }
     return try list.toOwnedSlice();
 }
@@ -169,14 +181,14 @@ test "RDescription" {
 
     try expectEqualStrings("R", rd.depends[0].name);
     try expectEqual(.gte, rd.depends[0].versionConstraint.constraint);
-    try expectEqual(3, rd.depends[0].versionConstraint.version.?.major);
-    try expectEqual(6, rd.depends[0].versionConstraint.version.?.minor);
-    try expectEqual(0, rd.depends[0].versionConstraint.version.?.patch);
+    try expectEqual(3, rd.depends[0].versionConstraint.version.major);
+    try expectEqual(6, rd.depends[0].versionConstraint.version.minor);
+    try expectEqual(0, rd.depends[0].versionConstraint.version.patch);
     try expectEqualStrings("usethis", rd.depends[1].name);
     try expectEqual(.gte, rd.depends[1].versionConstraint.constraint);
-    try expectEqual(2, rd.depends[1].versionConstraint.version.?.major);
-    try expectEqual(1, rd.depends[1].versionConstraint.version.?.minor);
-    try expectEqual(6, rd.depends[1].versionConstraint.version.?.patch);
+    try expectEqual(2, rd.depends[1].versionConstraint.version.major);
+    try expectEqual(1, rd.depends[1].versionConstraint.version.minor);
+    try expectEqual(6, rd.depends[1].versionConstraint.version.patch);
 }
 
 const Self = @This();

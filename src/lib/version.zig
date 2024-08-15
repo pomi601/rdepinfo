@@ -13,16 +13,18 @@ const Version = struct {
         var minor: usize = 0;
         var patch: usize = 0;
 
+        const in = std.mem.trim(u8, string, &std.ascii.whitespace);
+
         // Format: r12345 (svn version)
-        if (std.mem.startsWith(u8, string, "r")) {
-            major = std.fmt.parseInt(usize, string[1..], 10) catch {
+        if (std.mem.startsWith(u8, in, "r")) {
+            major = std.fmt.parseInt(usize, in[1..], 10) catch {
                 return error.InvalidFormat;
             };
-            return .{ .string = string, .major = major };
+            return .{ .string = in, .major = major };
         }
 
         // Format 1.2.3 or 1.2-3 or 1-2-3
-        var it = std.mem.splitAny(u8, string, ".-");
+        var it = std.mem.splitAny(u8, in, ".-");
         if (it.next()) |maj| {
             major = std.fmt.parseInt(usize, maj, 10) catch {
                 return error.InvalidFormat;
@@ -44,7 +46,7 @@ const Version = struct {
         if (major < 0 or minor < 0 or patch < 0) return error.InvalidFormat;
 
         return .{
-            .string = string,
+            .string = in,
             .major = major,
             .minor = minor,
             .patch = patch,
@@ -69,7 +71,6 @@ const Version = struct {
 };
 
 const Constraint = enum {
-    any,
     lt,
     lte,
     eq,
@@ -80,7 +81,6 @@ const Constraint = enum {
         _ = fmt;
         _ = options;
         switch (self) {
-            .any => try writer.print(".any", .{}),
             .lt => try writer.print("<", .{}),
             .lte => try writer.print("<=", .{}),
             .eq => try writer.print("==", .{}),
@@ -91,31 +91,26 @@ const Constraint = enum {
 };
 
 const VersionConstraint = struct {
-    constraint: Constraint = .any,
-    version: ?Version = null,
+    constraint: Constraint = .gte,
+    version: Version = .{ .string = "0.0.0", .major = 0, .minor = 0, .patch = 0 },
 
     pub fn init(constraint: Constraint, version: Version) VersionConstraint {
         return .{ .constraint = constraint, .version = version };
     }
 
     pub fn initString(constraint: Constraint, version: []const u8) !VersionConstraint {
-        assert(version.len > 0 or constraint == .any);
         return .{ .constraint = constraint, .version = try Version.init(version) };
     }
 
     /// Return true if other satisfies my version constraint.
     pub fn satisfied(self: VersionConstraint, other: Version) bool {
-        if (self.constraint == .any) return true;
-        assert(self.version != null);
-
-        const order = other.order(self.version.?);
+        const order = other.order(self.version);
         switch (self.constraint) {
             .lt => return order == .lt,
             .lte => return order == .lt or order == .eq,
             .eq => return order == .eq,
             .gte => return order == .gt or order == .eq,
             .gt => return order == .gt,
-            else => unreachable,
         }
     }
 
@@ -139,9 +134,9 @@ pub const NameAndVersionConstraint = struct {
         const trim = std.mem.trim;
 
         const in = trim(u8, string, &std.ascii.whitespace);
-        var name: []const u8 = "";
 
-        var it = std.mem.splitScalar(u8, in, ' ');
+        var name: []const u8 = "";
+        var it = std.mem.splitAny(u8, in, "(" ++ &std.ascii.whitespace);
         if (it.next()) |s| {
             name = s;
         } else return error.InvalidFormat;
@@ -150,35 +145,37 @@ pub const NameAndVersionConstraint = struct {
 
         const rest = trim(u8, it.rest(), &std.ascii.whitespace);
 
-        if (startsWith(u8, rest, "(")) {
-            const inner = trim(
-                u8,
-                trim(u8, rest, "()"),
-                &std.ascii.whitespace,
-            );
-            // version constraint: >= 2.0, etc
-            if (!startsWithAny(u8, inner, "=<>")) return error.InvalidFormat;
-            it = std.mem.splitScalar(u8, inner, ' ');
-            const op = it.next();
-            const ver = it.next();
-            if (op == null or ver == null) return error.InvalidFormat;
+        const inner = trim(
+            u8,
+            trim(u8, rest, "()"),
+            &std.ascii.whitespace,
+        );
 
-            var constraint: Constraint = .any;
-            const op_ = op.?;
-            if (startsWith(u8, op_, "<=")) {
-                constraint = .lte;
-            } else if (startsWith(u8, op_, "<")) {
-                constraint = .lt;
-            } else if (startsWith(u8, op_, ">=")) {
-                constraint = .gte;
-            } else if (startsWith(u8, op_, ">")) {
-                constraint = .gt;
-            } else if (startsWith(u8, op_, "=")) {
-                constraint = .eq;
-            } else return error.InvalidFormat;
-            return .{ .name = name, .versionConstraint = try VersionConstraint.initString(constraint, ver.?) };
-        } else if (rest.len > 0) return error.InvalidFormat;
-        return .{ .name = name };
+        var constraint: Constraint = .gte;
+
+        if (startsWith(u8, inner, "<=")) {
+            constraint = .lte;
+        } else if (startsWith(u8, inner, "<")) {
+            constraint = .lt;
+        } else if (startsWith(u8, inner, ">=")) {
+            constraint = .gte;
+        } else if (startsWith(u8, inner, ">")) {
+            constraint = .gt;
+        } else if (startsWith(u8, inner, "=")) {
+            constraint = .eq;
+        } else {
+            // no constraint found
+            return .{ .name = name };
+        }
+
+        // now trim off operators and whitespace, what's left is
+        // the version string
+        const ver = trim(u8, inner, "<>=" ++ std.ascii.whitespace);
+
+        return .{
+            .name = name,
+            .versionConstraint = try VersionConstraint.initString(constraint, ver),
+        };
     }
 
     pub fn format(self: NameAndVersionConstraint, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -203,23 +200,33 @@ test "NameAndVersionConstraint" {
 
     const v1 = try NameAndVersionConstraint.init("package");
     try expectEqualStrings("package", v1.name);
-    try expectEqual(.any, v1.versionConstraint.constraint);
-    try expectEqual(null, v1.versionConstraint.version);
+    try expectEqual(.gte, v1.versionConstraint.constraint);
+    try expectEqual(0, v1.versionConstraint.version.major);
+    try expectEqual(0, v1.versionConstraint.version.minor);
+    try expectEqual(0, v1.versionConstraint.version.patch);
 
     const v2 = try NameAndVersionConstraint.init("  pak  ( >= 2.0 ) ");
     try expectEqualStrings("pak", v2.name);
     try expectEqual(.gte, v2.versionConstraint.constraint);
-    try expectEqual(2, v2.versionConstraint.version.?.major);
+    try expectEqual(2, v2.versionConstraint.version.major);
+
+    const v3 = try NameAndVersionConstraint.init("x(= 1)");
+    try expectEqualStrings("x", v3.name);
+    try expectEqual(.eq, v3.versionConstraint.constraint);
+    try expectEqual(1, v3.versionConstraint.version.major);
+
+    const v4 = try NameAndVersionConstraint.init("x (=1)");
+    try expectEqualStrings("x", v4.name);
+    try expectEqual(.eq, v4.versionConstraint.constraint);
+    try expectEqual(1, v4.versionConstraint.version.major);
 
     try expectError(error.InvalidFormat, NameAndVersionConstraint.init("(= 1)"));
-    try expectError(error.InvalidFormat, NameAndVersionConstraint.init("x(= 1)"));
-    try expectError(error.InvalidFormat, NameAndVersionConstraint.init("x (=1)"));
 }
 
 test "VersionConstraint" {
     const expect = testing.expect;
 
-    const v1 = try VersionConstraint.initString(.any, "0");
+    const v1 = try VersionConstraint.initString(.gte, "0");
     try expect(v1.satisfied(try Version.init("1.0")));
     try expect(v1.satisfied(try Version.init("0.0")));
 
