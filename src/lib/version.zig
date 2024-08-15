@@ -71,7 +71,6 @@ const Version = struct {
 };
 
 const Constraint = enum {
-    any,
     lt,
     lte,
     eq,
@@ -82,7 +81,6 @@ const Constraint = enum {
         _ = fmt;
         _ = options;
         switch (self) {
-            .any => try writer.print(".any", .{}),
             .lt => try writer.print("<", .{}),
             .lte => try writer.print("<=", .{}),
             .eq => try writer.print("==", .{}),
@@ -93,31 +91,26 @@ const Constraint = enum {
 };
 
 const VersionConstraint = struct {
-    constraint: Constraint = .any,
-    version: ?Version = null,
+    constraint: Constraint = .gte,
+    version: Version = .{ .string = "0.0.0", .major = 0, .minor = 0, .patch = 0 },
 
     pub fn init(constraint: Constraint, version: Version) VersionConstraint {
         return .{ .constraint = constraint, .version = version };
     }
 
     pub fn initString(constraint: Constraint, version: []const u8) !VersionConstraint {
-        assert(version.len > 0 or constraint == .any);
         return .{ .constraint = constraint, .version = try Version.init(version) };
     }
 
     /// Return true if other satisfies my version constraint.
     pub fn satisfied(self: VersionConstraint, other: Version) bool {
-        if (self.constraint == .any) return true;
-        assert(self.version != null);
-
-        const order = other.order(self.version.?);
+        const order = other.order(self.version);
         switch (self.constraint) {
             .lt => return order == .lt,
             .lte => return order == .lt or order == .eq,
             .eq => return order == .eq,
             .gte => return order == .gt or order == .eq,
             .gt => return order == .gt,
-            else => unreachable,
         }
     }
 
@@ -158,7 +151,7 @@ pub const NameAndVersionConstraint = struct {
             &std.ascii.whitespace,
         );
 
-        var constraint: Constraint = .any;
+        var constraint: Constraint = .gte;
 
         if (startsWith(u8, inner, "<=")) {
             constraint = .lte;
@@ -207,23 +200,25 @@ test "NameAndVersionConstraint" {
 
     const v1 = try NameAndVersionConstraint.init("package");
     try expectEqualStrings("package", v1.name);
-    try expectEqual(.any, v1.versionConstraint.constraint);
-    try expectEqual(null, v1.versionConstraint.version);
+    try expectEqual(.gte, v1.versionConstraint.constraint);
+    try expectEqual(0, v1.versionConstraint.version.major);
+    try expectEqual(0, v1.versionConstraint.version.minor);
+    try expectEqual(0, v1.versionConstraint.version.patch);
 
     const v2 = try NameAndVersionConstraint.init("  pak  ( >= 2.0 ) ");
     try expectEqualStrings("pak", v2.name);
     try expectEqual(.gte, v2.versionConstraint.constraint);
-    try expectEqual(2, v2.versionConstraint.version.?.major);
+    try expectEqual(2, v2.versionConstraint.version.major);
 
     const v3 = try NameAndVersionConstraint.init("x(= 1)");
     try expectEqualStrings("x", v3.name);
     try expectEqual(.eq, v3.versionConstraint.constraint);
-    try expectEqual(1, v3.versionConstraint.version.?.major);
+    try expectEqual(1, v3.versionConstraint.version.major);
 
     const v4 = try NameAndVersionConstraint.init("x (=1)");
     try expectEqualStrings("x", v4.name);
     try expectEqual(.eq, v4.versionConstraint.constraint);
-    try expectEqual(1, v4.versionConstraint.version.?.major);
+    try expectEqual(1, v4.versionConstraint.version.major);
 
     try expectError(error.InvalidFormat, NameAndVersionConstraint.init("(= 1)"));
 }
@@ -231,7 +226,7 @@ test "NameAndVersionConstraint" {
 test "VersionConstraint" {
     const expect = testing.expect;
 
-    const v1 = try VersionConstraint.initString(.any, "0");
+    const v1 = try VersionConstraint.initString(.gte, "0");
     try expect(v1.satisfied(try Version.init("1.0")));
     try expect(v1.satisfied(try Version.init("0.0")));
 
