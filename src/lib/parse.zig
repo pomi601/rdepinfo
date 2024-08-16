@@ -1,6 +1,71 @@
 //! Inspired by Zig tokenizer.
 const std = @import("std");
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
+
+// -- TODO ------------------------------------------------------------------
+//
+// - [x] support any character as part of identifier (eg. @ and /)
+// - [x] support () which doesn't surround a version constraint
+// - [ ] support free text like Description and License fields below.
+
+// Package: renv
+// Type: Package
+// Title: Project Environments
+// Version: 1.0.7.9000
+// Authors@R: c(
+//     person("Kevin", "Ushey", role = c("aut", "cre"), email = "kevin@rstudio.com",
+//            comment = c(ORCID = "0000-0003-2880-7407")),
+//     person("Hadley", "Wickham", role = c("aut"), email = "hadley@rstudio.com",
+//            comment = c(ORCID = "0000-0003-4757-117X")),
+//     person("Posit Software, PBC", role = c("cph", "fnd"))
+//     )
+// Description: A dependency management toolkit for R. Using 'renv', you can create
+//     and manage project-local R libraries, save the state of these libraries to
+//     a 'lockfile', and later restore your library as required. Together, these
+//     tools can help make your projects more isolated, portable, and reproducible.
+// License: MIT + file LICENSE
+// URL: https://rstudio.github.io/renv/, https://github.com/rstudio/renv
+// BugReports: https://github.com/rstudio/renv/issues
+// Imports: utils
+// Suggests: BiocManager, cli, covr, cpp11, devtools, gitcreds, jsonlite, jsonvalidate, knitr,
+//     miniUI, packrat, pak, R6, remotes, reticulate, rmarkdown, rstudioapi, shiny, testthat,
+//     uuid, waldo, yaml, webfakes
+// Encoding: UTF-8
+// RoxygenNote: 7.3.2
+// Roxygen: list(markdown = TRUE)
+// VignetteBuilder: knitr
+// Config/Needs/website: tidyverse/tidytemplate
+// Config/testthat/edition: 3
+// Config/testthat/parallel: true
+// Config/testthat/start-first: bioconductor,python,install,restore,snapshot,retrieve,remotes
+
+// -- parse ------------------------------------------------------------------
+
+// Generate an AST.
+//
+// This is a tree
+
+const Parser = struct {
+    nodes: NodeList,
+
+    const Ast = struct {
+        nodes: NodeList,
+    };
+    const NodeList = std.ArrayList(Node);
+
+    const Node = struct {};
+
+    // pub fn parse(alloc: Allocator, source: []const u8) !Ast {
+    //     var tokenizer = Tokenizer.init(source);
+
+    //     while (tokenizer.next()) |token| {}
+    // }
+
+    // fn parseStanza(parser: *Parser) void {}
+};
+
+// -- tokenize ---------------------------------------------------------------
 
 pub const Token = struct {
     tag: Tag,
@@ -24,6 +89,7 @@ pub const Token = struct {
         less_than,
         less_than_equal,
         equal,
+        plus,
         greater_than_equal,
         greater_than,
         eof,
@@ -46,9 +112,10 @@ pub const Token = struct {
             => source[token.loc.start..token.loc.end],
 
             .colon => ":",
+            .close_round => ")",
             .comma => ",",
             .open_round => "(",
-            .close_round => ")",
+            .plus => "+",
         };
     }
 };
@@ -69,6 +136,7 @@ pub const Tokenizer = struct {
     const State = enum {
         start,
         identifier,
+        identifier_open_round,
         string_literal,
         string_literal_backslash,
         version_literal,
@@ -152,7 +220,9 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-
+                    0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {
+                        state = .invalid;
+                    },
                     else => {
                         state = .invalid;
                     },
@@ -261,7 +331,7 @@ pub const Tokenizer = struct {
                             result.loc.start = self.index;
                         },
                         else => {
-                            result.tag = .invalid;
+                            result.tag = .equal;
                             break;
                         },
                     }
@@ -300,7 +370,7 @@ pub const Tokenizer = struct {
                             self.index += 1;
                             break;
                         },
-                        0x01...0x09, 0x0b...0x1f, 0x7f => {
+                        0x01...0x08, 0x0b...0x1f, 0x7f => {
                             state = .invalid;
                         },
                         else => continue,
@@ -394,9 +464,27 @@ pub const Tokenizer = struct {
                         ',' => {
                             break;
                         },
-                        else => {
-                            result.tag = .invalid;
+                        '(' => {
                             break;
+                            // state = .identifier_open_round;
+                        },
+                        ')' => {
+                            break;
+                        },
+                        0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {
+                            state = .invalid;
+                        },
+                        else => continue,
+                    }
+                },
+                .identifier_open_round => {
+                    switch (c) {
+                        ' ', '\r', '\n', '\t', '<', '>', '=' => {
+                            self.index -= 1; // backtrack
+                            break;
+                        },
+                        else => {
+                            state = .identifier;
                         },
                     }
                 },
@@ -424,8 +512,8 @@ test "tokenize" {
     try testTokenize("Field: val (<2)", &.{ .identifier, .colon, .identifier, .open_round, .less_than, .close_round, .eof });
     try testTokenize("Field: val (<=2)", &.{ .identifier, .colon, .identifier, .open_round, .less_than_equal, .close_round, .eof });
     try testTokenize("Field: val (> 2)", &.{ .identifier, .colon, .identifier, .open_round, .greater_than, .close_round, .eof });
-    try testTokenize("Field: val (>= 2)", &.{ .identifier, .colon, .identifier, .open_round, .greater_than_equal, .close_round, .eof });
-    try testTokenize("Field: val, val2", &.{ .identifier, .colon, .identifier, .comma, .identifier, .eof });
+    try testTokenize("Field: val(>= 2)", &.{ .identifier, .colon, .identifier, .open_round, .greater_than_equal, .close_round, .eof });
+    try testTokenize("Field/foo@*: val(a), val^2", &.{ .identifier, .colon, .identifier, .open_round, .identifier, .close_round, .comma, .identifier, .eof });
 }
 
 test "tokenize continuation" {
@@ -456,6 +544,44 @@ test "tokenize version" {
     _ = tokenizer.next();
     const token = tokenizer.next();
     try testing.expectEqualStrings("3.2.1", token.lexeme(data).?);
+}
+
+test "tokenize license" {
+    const data =
+        \\ License: MIT + file LICENSE
+    ;
+    try testTokenize(data, &.{ .identifier, .colon, .identifier, .plus, .identifier, .identifier, .eof });
+}
+
+test "tokenize R" {
+    const data =
+        \\Authors@R: c(
+        \\    person("Kevin", "Ushey", role = c("aut", "cre"))
+        \\    )
+    ;
+    try testTokenize(data, &.{
+        .identifier,
+        .colon,
+        .identifier,
+        .open_round,
+        .identifier,
+        .open_round,
+        .string_literal,
+        .comma,
+        .string_literal,
+        .comma,
+        .identifier,
+        .equal,
+        .identifier,
+        .open_round,
+        .string_literal,
+        .comma,
+        .string_literal,
+        .close_round,
+        .close_round,
+        .close_round,
+        .eof,
+    });
 }
 
 fn testTokenize(source: []const u8, expected_token_tags: []const Token.Tag) !void {
