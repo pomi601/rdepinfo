@@ -4,6 +4,9 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
 const version = @import("version.zig");
+const Version = version.Version;
+const Constraint = version.Constraint;
+const VersionConstraint = version.VersionConstraint;
 
 /// Parser
 ///
@@ -33,7 +36,7 @@ pub const Parser = struct {
     };
     const NameAndVersionNode = struct {
         name: []const u8,
-        version_constraint: version.VersionConstraint = .{},
+        version_constraint: VersionConstraint = .{},
     };
     const StringNode = struct {
         value: []const u8,
@@ -177,7 +180,9 @@ pub const Parser = struct {
                 .start => switch (token.tag) {
                     .identifier => {
                         state = .identifier;
-                        node = Node{ .name_and_version = .{ .name = try self.lexeme(token) } };
+                        node = Node{
+                            .name_and_version = .{ .name = try self.lexeme(token) },
+                        };
                     },
                     .comma => {
                         continue;
@@ -185,10 +190,11 @@ pub const Parser = struct {
                     .eof, .end_field, .end_stanza => break,
                     else => {
                         state = .string;
-                        node = Node{ .string_node = .{ .value = try self.lexeme(token) } };
+                        node = Node{
+                            .string_node = .{ .value = try self.lexeme(token) },
+                        };
                     },
                 },
-
                 .identifier => switch (token.tag) {
                     .comma => {
                         state = .start;
@@ -204,16 +210,18 @@ pub const Parser = struct {
                     },
                     else => {
                         // switch to string, starting back at the first token we saw
-                        node = Node{ .string_node = .{ .value = self.source[start..token.loc.end] } };
+                        node = Node{
+                            .string_node = .{ .value = self.source[start..token.loc.end] },
+                        };
                         state = .string;
                     },
                 },
                 .identifier_open_round => switch (token.tag) {
                     .less_than, .less_than_equal, .equal, .greater_than_equal, .greater_than => {
-                        const ver = version.Version.init(token.lexeme(self.source) orelse "unknown") catch {
+                        const ver = Version.init(try self.lexeme(token)) catch {
                             return self.parseError(token, "expected version number");
                         };
-                        const constraint: version.Constraint = switch (token.tag) {
+                        const constraint: Constraint = switch (token.tag) {
                             .less_than => .lt,
                             .less_than_equal => .lte,
                             .equal => .eq,
@@ -223,7 +231,7 @@ pub const Parser = struct {
                         };
 
                         state = .start;
-                        node.name_and_version.version_constraint = version.VersionConstraint.init(constraint, ver);
+                        node.name_and_version.version_constraint = VersionConstraint.init(constraint, ver);
                         try self.nodes.append(node);
 
                         const expect_close_round = self._tokenizer.next();
@@ -235,7 +243,9 @@ pub const Parser = struct {
                     },
                     else => {
                         // switch to string
-                        node = Node{ .string_node = .{ .value = self.source[start..token.loc.end] } };
+                        node = Node{
+                            .string_node = .{ .value = self.source[start..token.loc.end] },
+                        };
                         state = .string;
                     },
                 },
@@ -256,12 +266,10 @@ pub const Parser = struct {
     }
 
     fn lexeme(self: *Parser, token: Token) error{ParseError}![]const u8 {
-        if (token.lexeme(self.source)) |lex| {
-            return lex;
-        } else {
+        return token.lexeme(self.source) orelse b: {
             _ = self.parseError(token, "expected lexeme");
-            return error.ParseError;
-        }
+            break :b error.ParseError;
+        };
     }
 
     fn parseError(self: *Parser, token: Token, message: []const u8) Token {
@@ -529,11 +537,7 @@ pub const Tokenizer = struct {
                 },
                 .equal => {
                     switch (c) {
-                        ' ', '\r', '\n', '\t' => {
-                            state = .expect_version;
-                            result.tag = .equal;
-                        },
-                        '=' => {
+                        ' ', '\r', '\n', '\t', '=' => {
                             state = .expect_version;
                             result.tag = .equal;
                         },
@@ -617,17 +621,12 @@ pub const Tokenizer = struct {
                 },
                 .version_literal => {
                     switch (c) {
+                        '\n', ')' => break,
                         'r' => {
                             state = .version_literal_r;
                         },
                         '.' => {
                             state = .version_literal_dot;
-                        },
-                        ')' => {
-                            break;
-                        },
-                        '\n' => {
-                            break;
                         },
                         ' ', '\r', '\t' => {
                             self.index += 1;
@@ -679,24 +678,10 @@ pub const Tokenizer = struct {
                 .identifier => {
                     switch (c) {
                         'a'...'z', 'A'...'Z', '_', '0'...'9' => continue,
-                        '\n' => {
-                            break;
-                        },
+                        '\n', ':', ',', '(', ')' => break,
+
                         ' ', '\r', '\t' => {
                             self.index += 1;
-                            break;
-                        },
-                        ':' => {
-                            break;
-                        },
-                        ',' => {
-                            break;
-                        },
-                        '(' => {
-                            break;
-                            // state = .identifier_open_round;
-                        },
-                        ')' => {
                             break;
                         },
                         0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {
