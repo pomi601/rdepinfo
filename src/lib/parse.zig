@@ -1,4 +1,4 @@
-//! Inspired by Zig tokenizer.
+//! Inspired by Zig tokenizer and parser.
 const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -17,7 +17,6 @@ pub const Parser = struct {
 
     // private, for use during parsing
     _tokenizer: Tokenizer,
-    _tokens: std.ArrayList(Token),
     _nodes: std.ArrayList(Node),
 
     const ParseError = struct {
@@ -73,22 +72,21 @@ pub const Parser = struct {
         return .{
             .alloc = alloc,
             .source = source,
-            .nodes = try std.ArrayList(Node).initCapacity(alloc, source.len / 5),
+            .nodes = try std.ArrayList(Node).initCapacity(alloc, source.len / 10),
             ._tokenizer = Tokenizer.init(source),
-            ._tokens = try std.ArrayList(Token).initCapacity(alloc, 16),
             ._nodes = try std.ArrayList(Node).initCapacity(alloc, 16),
         };
     }
 
     pub fn deinit(self: *Parser) void {
         self._nodes.deinit();
-        self._tokens.deinit();
         self._tokenizer.deinit();
         self.nodes.deinit();
         self.* = undefined;
     }
 
-    pub fn parse(self: *Parser) !void {
+    /// Parse source that was provided to init().
+    pub fn parse(self: *Parser) error{ ParseError, OutOfMemory }!void {
         try self.nodes.append(Node{ .root = .{} });
 
         while (true) {
@@ -96,6 +94,10 @@ pub const Parser = struct {
             if (token.tag == .eof) break;
         }
         try self.nodes.append(Node{ .eof = {} });
+
+        if (self.parse_error) |_| {
+            return error.ParseError;
+        }
     }
 
     fn parseStanza(self: *Parser) !Token {
@@ -123,10 +125,10 @@ pub const Parser = struct {
             token = self._tokenizer.next();
             switch (token.tag) {
                 .identifier => {
-                    field.name = self.source[token.loc.start..token.loc.end];
+                    field.name = try self.lexeme(token);
                     const expect_colon = self._tokenizer.next();
                     if (expect_colon.tag != .colon)
-                        return self.parseError(expect_colon, "expected a colon at the end of field name");
+                        return self.parseError(expect_colon, "expected a colon after field name");
 
                     try self.nodes.append(.{ .field = field });
                     token = try self.parseValue();
@@ -157,7 +159,6 @@ pub const Parser = struct {
         // If that fails, backtrack and capture a single string
         // literal until the end of field token.
 
-        self._tokens.clearRetainingCapacity();
         self._nodes.clearRetainingCapacity();
 
         var node: Node = undefined;
@@ -172,15 +173,16 @@ pub const Parser = struct {
         var state: ParseValueState = .start;
 
         var token: Token = undefined;
+        var start: usize = 0; // a value cannot appear at loc zero
         while (true) {
             token = self._tokenizer.next();
-            try self._tokens.append(token);
+            if (start == 0) start = token.loc.start;
 
             switch (state) {
                 .start => switch (token.tag) {
                     .identifier => {
                         state = .identifier;
-                        node = Node{ .name_and_version = .{ .name = token.lexeme(self.source) orelse "unknown" } };
+                        node = Node{ .name_and_version = .{ .name = try self.lexeme(token) } };
                     },
                     .comma => {
                         continue;
@@ -188,7 +190,7 @@ pub const Parser = struct {
                     .eof, .end_field, .end_stanza => break,
                     else => {
                         state = .string;
-                        node = Node{ .string_node = .{ .value = self.source[token.loc.start..token.loc.end] } };
+                        node = Node{ .string_node = .{ .value = try self.lexeme(token) } };
                     },
                 },
 
@@ -206,8 +208,8 @@ pub const Parser = struct {
                         break;
                     },
                     else => {
-                        // switch to string
-                        node = Node{ .string_node = .{ .value = self.source[self._tokens.items[0].loc.start..token.loc.end] } };
+                        // switch to string, starting back at the first token we saw
+                        node = Node{ .string_node = .{ .value = self.source[start..token.loc.end] } };
                         state = .string;
                     },
                 },
@@ -238,7 +240,7 @@ pub const Parser = struct {
                     },
                     else => {
                         // switch to string
-                        node = Node{ .string_node = .{ .value = self.source[self._tokens.items[0].loc.start..token.loc.end] } };
+                        node = Node{ .string_node = .{ .value = self.source[start..token.loc.end] } };
                         state = .string;
                     },
                 },
@@ -248,7 +250,8 @@ pub const Parser = struct {
                         break;
                     },
                     else => {
-                        node.string_node.value = self.source[self._tokens.items[0].loc.start..token.loc.end];
+                        // extend string
+                        node.string_node.value = self.source[start..token.loc.end];
                     },
                 },
             }
@@ -259,6 +262,15 @@ pub const Parser = struct {
         }
 
         return token;
+    }
+
+    fn lexeme(self: *Parser, token: Token) error{ParseError}![]const u8 {
+        if (token.lexeme(self.source)) |lex| {
+            return lex;
+        } else {
+            _ = self.parseError(token, "expected lexeme");
+            return error.ParseError;
+        }
     }
 
     fn parseError(self: *Parser, token: Token, message: []const u8) Token {
@@ -296,6 +308,7 @@ pub const Token = struct {
         greater_than,
         eof,
     };
+
     pub fn lexeme(token: Token, source: []const u8) ?[]const u8 {
         return switch (token.tag) {
             .end_field,
