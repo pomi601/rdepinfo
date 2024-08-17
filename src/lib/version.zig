@@ -123,7 +123,7 @@ pub const VersionConstraint = struct {
 
 pub const NameAndVersionConstraint = struct {
     name: []const u8,
-    versionConstraint: VersionConstraint = .{},
+    version_constraint: VersionConstraint = .{},
 
     /// Attempt to parse string into a name and optional version
     /// constraint. The format is `name (>= 3.2)` where the
@@ -174,14 +174,14 @@ pub const NameAndVersionConstraint = struct {
 
         return .{
             .name = name,
-            .versionConstraint = try VersionConstraint.initString(constraint, ver),
+            .version_constraint = try VersionConstraint.initString(constraint, ver),
         };
     }
 
     pub fn format(self: NameAndVersionConstraint, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        try writer.print("({s} {s})", .{ self.name, self.versionConstraint });
+        try writer.print("({s} {s})", .{ self.name, self.version_constraint });
     }
 };
 
@@ -200,25 +200,25 @@ test "NameAndVersionConstraint" {
 
     const v1 = try NameAndVersionConstraint.init("package");
     try expectEqualStrings("package", v1.name);
-    try expectEqual(.gte, v1.versionConstraint.constraint);
-    try expectEqual(0, v1.versionConstraint.version.major);
-    try expectEqual(0, v1.versionConstraint.version.minor);
-    try expectEqual(0, v1.versionConstraint.version.patch);
+    try expectEqual(.gte, v1.version_constraint.constraint);
+    try expectEqual(0, v1.version_constraint.version.major);
+    try expectEqual(0, v1.version_constraint.version.minor);
+    try expectEqual(0, v1.version_constraint.version.patch);
 
     const v2 = try NameAndVersionConstraint.init("  pak  ( >= 2.0 ) ");
     try expectEqualStrings("pak", v2.name);
-    try expectEqual(.gte, v2.versionConstraint.constraint);
-    try expectEqual(2, v2.versionConstraint.version.major);
+    try expectEqual(.gte, v2.version_constraint.constraint);
+    try expectEqual(2, v2.version_constraint.version.major);
 
     const v3 = try NameAndVersionConstraint.init("x(= 1)");
     try expectEqualStrings("x", v3.name);
-    try expectEqual(.eq, v3.versionConstraint.constraint);
-    try expectEqual(1, v3.versionConstraint.version.major);
+    try expectEqual(.eq, v3.version_constraint.constraint);
+    try expectEqual(1, v3.version_constraint.version.major);
 
     const v4 = try NameAndVersionConstraint.init("x (=1)");
     try expectEqualStrings("x", v4.name);
-    try expectEqual(.eq, v4.versionConstraint.constraint);
-    try expectEqual(1, v4.versionConstraint.version.major);
+    try expectEqual(.eq, v4.version_constraint.constraint);
+    try expectEqual(1, v4.version_constraint.version.major);
 
     try expectError(error.InvalidFormat, NameAndVersionConstraint.init("(= 1)"));
 }

@@ -21,30 +21,27 @@ pub const Parser = struct {
     // private, for use during parsing
     _tokenizer: Tokenizer,
 
-    const ParseError = struct {
+    pub const ParseError = struct {
         message: []const u8,
         token: Token,
     };
-    const Ast = struct {
-        nodes: NodeList,
-    };
-    const NodeList = std.ArrayList(Node);
-    const RootNode = struct {};
-    const StanzaNode = struct {};
-    const FieldNode = struct {
+    pub const NodeList = std.ArrayList(Node);
+    pub const RootNode = struct {};
+    pub const StanzaNode = struct {};
+    pub const FieldNode = struct {
         name: []const u8,
     };
-    const NameAndVersionNode = struct {
+    pub const NameAndVersionNode = struct {
         name: []const u8,
         version_constraint: VersionConstraint = .{},
     };
-    const StringNode = struct {
+    pub const StringNode = struct {
         value: []const u8,
     };
-    const FieldEndNode = void;
-    const StanzaEndNode = void;
+    pub const FieldEndNode = void;
+    pub const StanzaEndNode = void;
 
-    const Node = union(enum) {
+    pub const Node = union(enum) {
         root: RootNode,
         stanza: StanzaNode,
         field: FieldNode,
@@ -629,7 +626,6 @@ pub const Tokenizer = struct {
                             state = .version_literal_dot;
                         },
                         ' ', '\r', '\t' => {
-                            self.index += 1;
                             break;
                         },
                         '0'...'9' => continue,
@@ -664,7 +660,6 @@ pub const Tokenizer = struct {
                 .version_literal_r_digit => {
                     switch (c) {
                         ' ', '\n', '\r', '\t' => {
-                            self.index += 1;
                             break;
                         },
                         '0'...'9' => continue,
@@ -681,7 +676,6 @@ pub const Tokenizer = struct {
                         '\n', ':', ',', '(', ')' => break,
 
                         ' ', '\r', '\t' => {
-                            self.index += 1;
                             break;
                         },
                         0x01...0x08, 0x0b, 0x0c, 0x0e...0x1f, 0x7f => {

@@ -12,18 +12,17 @@
 const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const DCF = @import("DebianControlFile.zig");
 const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
+const parse = @import("parse.zig");
+const Parser = parse.Parser;
 
-stanza: DCF.Stanza,
 depends: []NameAndVersionConstraint = &.{},
 suggests: []NameAndVersionConstraint = &.{},
 imports: []NameAndVersionConstraint = &.{},
 linkingTo: []NameAndVersionConstraint = &.{},
 
 pub fn deinit(self: *Self, alloc: Allocator) void {
-    self.stanza.deinit(alloc);
     alloc.free(self.depends);
     alloc.free(self.suggests);
     alloc.free(self.imports);
@@ -31,8 +30,15 @@ pub fn deinit(self: *Self, alloc: Allocator) void {
     self.* = undefined;
 }
 
-pub fn fromStanza(alloc: Allocator, stanza: DCF.Stanza) !Self {
-    const my_stanza = try stanza.clone(alloc);
+pub fn fromSource(alloc: Allocator, source: []const u8) !Self {
+    // Parse the source into an AST
+    var parser = try Parser.init(alloc, source);
+    defer parser.deinit();
+    try parser.parse();
+
+    // Parsing the AST for this use case is easy, since we only care
+    // about the first stanza. So we can iterate through nodes until
+    // we hit the end-stanza node.
     var list = std.ArrayList(NameAndVersionConstraint).init(alloc);
     defer list.deinit();
     var depends: []NameAndVersionConstraint = &.{};
@@ -40,21 +46,33 @@ pub fn fromStanza(alloc: Allocator, stanza: DCF.Stanza) !Self {
     var imports: []NameAndVersionConstraint = &.{};
     var linkingTo: []NameAndVersionConstraint = &.{};
 
-    if (get_field(my_stanza.fields, "Depends")) |f| {
-        depends = try process_value(&list, f.val);
-    }
-    if (get_field(my_stanza.fields, "Suggests")) |f| {
-        suggests = try process_value(&list, f.val);
-    }
-    if (get_field(my_stanza.fields, "Imports")) |f| {
-        imports = try process_value(&list, f.val);
-    }
-    if (get_field(my_stanza.fields, "LinkingTo")) |f| {
-        linkingTo = try process_value(&list, f.val);
+    const nodes = parser.nodes.items;
+    var index: usize = 0;
+    var node: Parser.Node = undefined;
+    while (true) : (index += 1) {
+        node = nodes[index];
+        if (node == .stanza_end) break;
+        switch (node) {
+            .field => |field| {
+                if (std.mem.eql(u8, "Depends", field.name)) {
+                    try parsePackages(nodes, &index, &list);
+                    depends = try list.toOwnedSlice();
+                } else if (std.mem.eql(u8, "Suggests", field.name)) {
+                    try parsePackages(nodes, &index, &list);
+                    suggests = try list.toOwnedSlice();
+                } else if (std.mem.eql(u8, "Imports", field.name)) {
+                    try parsePackages(nodes, &index, &list);
+                    imports = try list.toOwnedSlice();
+                } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
+                    try parsePackages(nodes, &index, &list);
+                    linkingTo = try list.toOwnedSlice();
+                }
+            },
+            else => continue,
+        }
     }
 
     return .{
-        .stanza = my_stanza,
         .depends = depends,
         .suggests = suggests,
         .imports = imports,
@@ -62,36 +80,24 @@ pub fn fromStanza(alloc: Allocator, stanza: DCF.Stanza) !Self {
     };
 }
 
-fn get_field(fields: []DCF.Field, name: []const u8) ?DCF.Field {
-    for (fields) |f| {
-        if (std.mem.eql(u8, f.key, name)) return f;
-    }
-    return null;
-}
-
-fn process_value(
+fn parsePackages(
+    nodes: []Parser.Node,
+    index: *usize,
     list: *std.ArrayList(NameAndVersionConstraint),
-    val: []const u8,
-) ![]NameAndVersionConstraint {
-    list.clearRetainingCapacity();
-    var it = std.mem.splitScalar(u8, val, ',');
-    while (it.next()) |x_| {
-        const x = std.mem.trim(u8, x_, &std.ascii.whitespace);
-
-        // catch trailing commas, e.g. 'pack1, pack2,'
-        if (x.len == 0) continue;
-
-        try list.append(NameAndVersionConstraint.init(x) catch |err| {
-            switch (err) {
-                error.InvalidFormat => {
-                    std.debug.print("error.InvalidFormat: val: '{s}', x: '{s}'\n", .{ val, x });
-                    return err;
-                },
-                else => return err,
-            }
-        });
+) !void {
+    index.* += 1;
+    while (true) : (index.* += 1) {
+        const node = nodes[index.*];
+        switch (node) {
+            .name_and_version => |nv| {
+                try list.append(NameAndVersionConstraint{
+                    .name = nv.name,
+                    .version_constraint = nv.version_constraint,
+                });
+            },
+            else => break,
+        }
     }
-    return try list.toOwnedSlice();
 }
 
 test "RDescription" {
@@ -173,22 +179,19 @@ test "RDescription" {
     ;
 
     const alloc = std.testing.allocator;
-    var dcf = try DCF.parse(alloc, data);
-    defer dcf.deinit(alloc);
+    var rdv2 = try Self.fromSource(alloc, data);
+    defer rdv2.deinit(alloc);
 
-    var rd = try Self.fromStanza(alloc, dcf.stanzas[0]);
-    defer rd.deinit(alloc);
-
-    try expectEqualStrings("R", rd.depends[0].name);
-    try expectEqual(.gte, rd.depends[0].versionConstraint.constraint);
-    try expectEqual(3, rd.depends[0].versionConstraint.version.major);
-    try expectEqual(6, rd.depends[0].versionConstraint.version.minor);
-    try expectEqual(0, rd.depends[0].versionConstraint.version.patch);
-    try expectEqualStrings("usethis", rd.depends[1].name);
-    try expectEqual(.gte, rd.depends[1].versionConstraint.constraint);
-    try expectEqual(2, rd.depends[1].versionConstraint.version.major);
-    try expectEqual(1, rd.depends[1].versionConstraint.version.minor);
-    try expectEqual(6, rd.depends[1].versionConstraint.version.patch);
+    try expectEqualStrings("R", rdv2.depends[0].name);
+    try expectEqual(.gte, rdv2.depends[0].version_constraint.constraint);
+    try expectEqual(3, rdv2.depends[0].version_constraint.version.major);
+    try expectEqual(6, rdv2.depends[0].version_constraint.version.minor);
+    try expectEqual(0, rdv2.depends[0].version_constraint.version.patch);
+    try expectEqualStrings("usethis", rdv2.depends[1].name);
+    try expectEqual(.gte, rdv2.depends[1].version_constraint.constraint);
+    try expectEqual(2, rdv2.depends[1].version_constraint.version.major);
+    try expectEqual(1, rdv2.depends[1].version_constraint.version.minor);
+    try expectEqual(6, rdv2.depends[1].version_constraint.version.patch);
 }
 
 const Self = @This();
