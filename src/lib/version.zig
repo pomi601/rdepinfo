@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const Version = struct {
+pub const Version = struct {
     string: []const u8,
     major: usize = 0,
     minor: usize = 0,
@@ -70,7 +70,7 @@ const Version = struct {
     }
 };
 
-const Constraint = enum {
+pub const Constraint = enum {
     lt,
     lte,
     eq,
@@ -90,7 +90,7 @@ const Constraint = enum {
     }
 };
 
-const VersionConstraint = struct {
+pub const VersionConstraint = struct {
     constraint: Constraint = .gte,
     version: Version = .{ .string = "0.0.0", .major = 0, .minor = 0, .patch = 0 },
 
