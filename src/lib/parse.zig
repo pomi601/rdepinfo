@@ -17,7 +17,6 @@ pub const Parser = struct {
 
     // private, for use during parsing
     _tokenizer: Tokenizer,
-    _nodes: std.ArrayList(Node),
 
     const ParseError = struct {
         message: []const u8,
@@ -74,12 +73,10 @@ pub const Parser = struct {
             .source = source,
             .nodes = try std.ArrayList(Node).initCapacity(alloc, source.len / 10),
             ._tokenizer = Tokenizer.init(source),
-            ._nodes = try std.ArrayList(Node).initCapacity(alloc, 16),
         };
     }
 
     pub fn deinit(self: *Parser) void {
-        self._nodes.deinit();
         self._tokenizer.deinit();
         self.nodes.deinit();
         self.* = undefined;
@@ -159,8 +156,6 @@ pub const Parser = struct {
         // If that fails, backtrack and capture a single string
         // literal until the end of field token.
 
-        self._nodes.clearRetainingCapacity();
-
         var node: Node = undefined;
 
         const ParseValueState = enum {
@@ -197,14 +192,14 @@ pub const Parser = struct {
                 .identifier => switch (token.tag) {
                     .comma => {
                         state = .start;
-                        try self._nodes.append(node);
+                        try self.nodes.append(node);
                     },
                     .open_round => {
                         state = .identifier_open_round;
                     },
                     .eof, .end_field, .end_stanza => {
                         state = .start;
-                        try self._nodes.append(node);
+                        try self.nodes.append(node);
                         break;
                     },
                     else => {
@@ -229,7 +224,7 @@ pub const Parser = struct {
 
                         state = .start;
                         node.name_and_version.version_constraint = version.VersionConstraint.init(constraint, ver);
-                        try self._nodes.append(node);
+                        try self.nodes.append(node);
 
                         const expect_close_round = self._tokenizer.next();
                         if (expect_close_round.tag != .close_round)
@@ -246,7 +241,7 @@ pub const Parser = struct {
                 },
                 .string => switch (token.tag) {
                     .eof, .end_field, .end_stanza => {
-                        try self._nodes.append(node);
+                        try self.nodes.append(node);
                         break;
                     },
                     else => {
@@ -255,10 +250,6 @@ pub const Parser = struct {
                     },
                 },
             }
-        }
-
-        for (self._nodes.items) |x| {
-            try self.nodes.append(x);
         }
 
         return token;
