@@ -82,6 +82,14 @@ pub const Parser = struct {
         self.* = undefined;
     }
 
+    pub fn numStanzas(self: Parser) usize {
+        var count: usize = 0;
+        for (self.nodes.items) |node| {
+            if (node == .stanza) count += 1;
+        }
+        return count;
+    }
+
     /// Parse source that was provided to init().
     pub fn parse(self: *Parser) error{ ParseError, OutOfMemory }!void {
         try self.nodes.append(Node{ .root = .{} });
@@ -630,8 +638,8 @@ pub const Tokenizer = struct {
                         },
                         '0'...'9' => continue,
                         else => {
-                            result.tag = .invalid;
-                            break;
+                            state = .unparsed;
+                            result.tag = .string_literal;
                         },
                     }
                 },

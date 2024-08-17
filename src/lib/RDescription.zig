@@ -36,6 +36,11 @@ pub fn fromSource(alloc: Allocator, source: []const u8) !Self {
     defer parser.deinit();
     try parser.parse();
 
+    return fromAst(alloc, parser.nodes.items, 0);
+}
+
+/// Parse one stanza denoted by stanza_index.
+pub fn fromAst(alloc: Allocator, nodes: []Parser.Node, stanza_index: usize) !Self {
     // Parsing the AST for this use case is easy, since we only care
     // about the first stanza. So we can iterate through nodes until
     // we hit the end-stanza node.
@@ -46,9 +51,19 @@ pub fn fromSource(alloc: Allocator, source: []const u8) !Self {
     var imports: []NameAndVersionConstraint = &.{};
     var linkingTo: []NameAndVersionConstraint = &.{};
 
-    const nodes = parser.nodes.items;
     var index: usize = 0;
     var node: Parser.Node = undefined;
+
+    // advance to requested stanza
+    var seeking = stanza_index;
+    while (true) : (index += 1) {
+        if (seeking == 0) break;
+
+        node = nodes[index];
+        if (node == .stanza) seeking -= 1;
+        if (node == .eof) return error.NotFound;
+    }
+
     while (true) : (index += 1) {
         node = nodes[index];
         if (node == .stanza_end) break;
