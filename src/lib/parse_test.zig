@@ -42,10 +42,51 @@ test "parse" {
     defer parser.deinit();
     try parser.parse();
 
-    std.debug.print("\nParser nodes:", .{});
-    for (parser.nodes.items) |node| {
-        std.debug.print("  {s}", .{node});
-    }
+    // std.debug.print("\nParser nodes:", .{});
+    // for (parser.nodes.items) |node| {
+    //     std.debug.print("  {s}", .{node});
+    // }
+}
+
+test "two stanzas" {
+    const expect = testing.expect;
+    const source =
+        \\Field1: val1
+        \\
+        \\Field2: val2
+    ;
+
+    const alloc = std.testing.allocator;
+
+    var parser = try parse.Parser.init(alloc, source);
+    defer parser.deinit();
+    try parser.parse();
+
+    // parser._tokenizer.reset();
+    // while (true) {
+    //     const token = parser._tokenizer.next();
+    //     if (token.tag == .eof) break;
+    //     std.debug.print("{}\n", .{token});
+    // }
+
+    // std.debug.print("\nParser nodes:", .{});
+    // for (parser.nodes.items) |node| {
+    //     std.debug.print("  {s}", .{node});
+    // }
+
+    const nodes = parser.nodes.items;
+    try expect(.root == nodes[0]);
+    try expect(.stanza == nodes[1]);
+    try expect(.field == nodes[2]);
+    try expect(.name_and_version == nodes[3]);
+    try expect(.field_end == nodes[4]);
+    try expect(.stanza_end == nodes[5]);
+    try expect(.stanza == nodes[6]);
+    try expect(.field == nodes[7]);
+    try expect(.name_and_version == nodes[8]);
+    try expect(.field_end == nodes[9]);
+    try expect(.stanza_end == nodes[10]);
+    try expect(.eof == nodes[11]);
 }
 
 test "tokenize" {
@@ -62,8 +103,10 @@ test "tokenize continuation" {
         \\ continues
         \\  again
         \\Field2: val3
+        \\
+        \\NextStanza: hello
     ;
-    try testTokenize(data, &.{ .identifier, .colon, .identifier, .identifier, .identifier, .identifier, .end_field, .identifier, .colon, .identifier, .eof });
+    try testTokenize(data, &.{ .identifier, .colon, .identifier, .identifier, .identifier, .identifier, .end_field, .identifier, .colon, .identifier, .end_stanza, .identifier, .colon, .identifier, .eof });
 }
 
 test "tokenize string" {

@@ -5,25 +5,10 @@ const Allocator = std.mem.Allocator;
 
 const version = @import("version.zig");
 
-// -- parse ------------------------------------------------------------------
-
-// Generate an AST.
-//
-// This is a tree
-
 /// Parser
 ///
-/// NodeList format:
-///
-/// RootNode
-/// StanzaNode
-///   FieldNode
-///      StringNode or NameAndVersionNode
-///      ...
-///   FieldEndNode
-///   ... (more FieldNode/FieldEndNode pairs)
-/// StanzaEndNode
-/// ... (more StanzaNode/StanzaEndNode pairs)
+/// See parse_test.zig for a test which can print the ast node list
+/// generated from a moderately complicated example.
 pub const Parser = struct {
     alloc: Allocator,
     source: []const u8,
@@ -84,12 +69,6 @@ pub const Parser = struct {
         }
     };
 
-    const State = enum {
-        expect_field,
-        expect_colon,
-        expect_value,
-    };
-
     pub fn init(alloc: Allocator, source: []const u8) !Parser {
         return .{
             .alloc = alloc,
@@ -116,6 +95,7 @@ pub const Parser = struct {
             const token = try self.parseStanza();
             if (token.tag == .eof) break;
         }
+        try self.nodes.append(Node{ .eof = {} });
     }
 
     fn parseStanza(self: *Parser) !Token {
@@ -124,7 +104,12 @@ pub const Parser = struct {
         var token: Token = undefined;
         while (true) {
             token = try self.parseField();
-            if (token.tag == .eof) break;
+            switch (token.tag) {
+                .end_stanza, .eof => break,
+                .end_field => continue,
+                .identifier => continue,
+                else => unreachable,
+            }
         }
 
         try self.nodes.append(Node{ .stanza_end = {} });
@@ -144,8 +129,16 @@ pub const Parser = struct {
                         return self.parseError(expect_colon, "expected a colon at the end of field name");
 
                     try self.nodes.append(.{ .field = field });
-                    switch ((try self.parseValue()).tag) {
-                        .eof, .end_field => break,
+                    token = try self.parseValue();
+                    switch (token.tag) {
+                        // .end_stanza token replaces .end_field if it's the last field in a stanza
+                        .eof, .end_stanza => {
+                            break;
+                        },
+                        .end_field => {
+                            break;
+                        },
+
                         else => continue,
                     }
                 },
@@ -192,7 +185,7 @@ pub const Parser = struct {
                     .comma => {
                         continue;
                     },
-                    .eof, .end_field => break,
+                    .eof, .end_field, .end_stanza => break,
                     else => {
                         state = .string;
                         node = Node{ .string_node = .{ .value = self.source[token.loc.start..token.loc.end] } };
@@ -207,7 +200,7 @@ pub const Parser = struct {
                     .open_round => {
                         state = .identifier_open_round;
                     },
-                    .eof, .end_field => {
+                    .eof, .end_field, .end_stanza => {
                         state = .start;
                         try self._nodes.append(node);
                         break;
@@ -250,7 +243,7 @@ pub const Parser = struct {
                     },
                 },
                 .string => switch (token.tag) {
-                    .eof, .end_field => {
+                    .eof, .end_field, .end_stanza => {
                         try self._nodes.append(node);
                         break;
                     },
@@ -344,6 +337,10 @@ pub const Tokenizer = struct {
 
     pub fn deinit(self: *Tokenizer) void {
         self.* = undefined;
+    }
+
+    pub fn reset(self: *Tokenizer) void {
+        self.index = 0;
     }
 
     const State = enum {
