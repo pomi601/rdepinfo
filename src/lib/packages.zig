@@ -7,12 +7,16 @@ const Parser = parse.Parser;
 
 const util = @import("util.zig");
 
-const NameAndVersionConstraint = @import("version.zig").NameAndVersionConstraint;
+const version = @import("version.zig");
+const NameAndVersionConstraint = version.NameAndVersionConstraint;
+const Version = version.Version;
 
 const RDescription = @import("RDescription.zig");
 
 const Repository = struct {
     const Package = struct {
+        name: []const u8 = "",
+        version: Version = .{ .string = "" },
         depends: []NameAndVersionConstraint = &.{},
         suggests: []NameAndVersionConstraint = &.{},
         imports: []NameAndVersionConstraint = &.{},
@@ -20,12 +24,19 @@ const Repository = struct {
     };
 
     alloc: Allocator,
+    strings: std.ArrayList(u8),
     packages: std.MultiArrayList(Package),
 
+    /// Call deinit when finished.
     pub fn init(alloc: Allocator) Repository {
-        return .{ .alloc = alloc, .packages = .{} };
+        return .{
+            .alloc = alloc,
+            .strings = std.ArrayList(u8).init(alloc),
+            .packages = .{},
+        };
     }
 
+    /// Release internal buffers and invalidate.
     pub fn deinit(self: *Repository) void {
         const slice = self.packages.slice();
         for (slice.items(.depends)) |x| {
@@ -40,10 +51,13 @@ const Repository = struct {
         for (slice.items(.linkingTo)) |x| {
             self.alloc.free(x);
         }
+        self.strings.deinit();
         self.packages.deinit(self.alloc);
         self.* = undefined;
     }
 
+    /// Read packages information from provided source. Expects Debian
+    /// Control File format, same as R PACKAGES file.
     pub fn read(self: *Repository, source: []const u8) !void {
         var parser = try parse.Parser.init(self.alloc, source);
         defer parser.deinit();
@@ -53,14 +67,14 @@ const Repository = struct {
         try self.packages.ensureTotalCapacity(self.alloc, parser.nodes.items.len / 30);
         defer self.packages.shrinkAndFree(self.alloc, self.packages.len);
 
+        // reserve estimated space for strings
+        try self.strings.ensureTotalCapacity(parser.nodes.items.len / 30 * 16);
+
         // reserve working list of []NameAndVersionConstraint
         var nav_list = try std.ArrayList(NameAndVersionConstraint).initCapacity(self.alloc, 16);
         defer nav_list.deinit();
 
-        var depends: []NameAndVersionConstraint = &.{};
-        var suggests: []NameAndVersionConstraint = &.{};
-        var imports: []NameAndVersionConstraint = &.{};
-        var linkingTo: []NameAndVersionConstraint = &.{};
+        var result: Package = .{};
 
         const nodes = parser.nodes.items;
         var index: usize = 0;
@@ -72,37 +86,57 @@ const Repository = struct {
                 .eof => break,
 
                 .stanza_end => {
-                    try self.packages.append(self.alloc, .{
-                        .depends = depends,
-                        .suggests = suggests,
-                        .imports = imports,
-                        .linkingTo = linkingTo,
-                    });
-                    depends = &.{};
-                    suggests = &.{};
-                    imports = &.{};
-                    linkingTo = &.{};
+                    try self.packages.append(self.alloc, result);
+                    result = .{};
                     nav_list.clearRetainingCapacity();
                 },
 
                 .field => |field| {
-                    if (std.mem.eql(u8, "Depends", field.name)) {
+                    if (std.mem.eql(u8, "Package", field.name)) {
+                        result.name = try parsePackageName(nodes, &index, &self.strings);
+                    } else if (std.mem.eql(u8, "Version", field.name)) {
+                        result.version = try parsePackageVersion(nodes, &index);
+                    } else if (std.mem.eql(u8, "Depends", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
-                        depends = try nav_list.toOwnedSlice();
+                        result.depends = try nav_list.toOwnedSlice();
                     } else if (std.mem.eql(u8, "Suggests", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
-                        suggests = try nav_list.toOwnedSlice();
+                        result.suggests = try nav_list.toOwnedSlice();
                     } else if (std.mem.eql(u8, "Imports", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
-                        imports = try nav_list.toOwnedSlice();
+                        result.imports = try nav_list.toOwnedSlice();
                     } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
-                        linkingTo = try nav_list.toOwnedSlice();
+                        result.linkingTo = try nav_list.toOwnedSlice();
                     }
                 },
 
                 else => continue,
             }
+        }
+    }
+
+    fn parsePackageName(nodes: []Parser.Node, index: *usize, strings: *std.ArrayList(u8)) ![]const u8 {
+        index.* += 1;
+        switch (nodes[index.*]) {
+            .name_and_version => |nv| {
+                const start = strings.items.len;
+                try strings.appendSlice(nv.name);
+                return strings.items[start..strings.items.len];
+            },
+            // expect .name_and_version immediately after .field for a Package field
+            else => unreachable,
+        }
+    }
+
+    fn parsePackageVersion(nodes: []Parser.Node, index: *usize) !Version {
+        index.* += 1;
+        switch (nodes[index.*]) {
+            .string_node => |s| {
+                return try Version.init(s.value);
+            },
+            // expect .string_node immediately after .field for a Version field
+            else => unreachable,
         }
     }
 
@@ -158,4 +192,14 @@ test "PACKAGES.gz" {
     defer repo.deinit();
     try repo.read(source);
     std.debug.print("Parse to Repository ({} packages) = {}ms\n", .{ repo.packages.len, @divFloor(timer.lap(), 1_000_000) });
+
+    // Current PACKAGES has this as the first stanza:
+    // Package: A3
+    // Version: 1.0.0
+    try testing.expectEqualStrings("A3", repo.packages.items(.name)[0]);
+    try testing.expectEqualStrings("1.0.0", repo.packages.items(.version)[0].string);
+    try testing.expectEqualStrings("AalenJohansen", repo.packages.items(.name)[1]);
+    try testing.expectEqualStrings("1.0", repo.packages.items(.version)[1].string);
+    try testing.expectEqualStrings("AATtools", repo.packages.items(.name)[2]);
+    try testing.expectEqualStrings("0.0.2", repo.packages.items(.version)[2].string);
 }

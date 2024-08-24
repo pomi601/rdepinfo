@@ -57,28 +57,16 @@ test "two stanzas" {
     ;
 
     const alloc = std.testing.allocator;
-
     var parser = try parse.Parser.init(alloc, source);
     defer parser.deinit();
     try parser.parse();
-
-    // parser._tokenizer.reset();
-    // while (true) {
-    //     const token = parser._tokenizer.next();
-    //     if (token.tag == .eof) break;
-    //     std.debug.print("{}\n", .{token});
-    // }
-
-    // std.debug.print("\nParser nodes:", .{});
-    // for (parser.nodes.items) |node| {
-    //     std.debug.print("  {s}", .{node});
-    // }
 
     const nodes = parser.nodes.items;
     try expect(.root == nodes[0]);
     try expect(.stanza == nodes[1]);
     try expect(.field == nodes[2]);
     try expect(.name_and_version == nodes[3]);
+    try testing.expectEqualStrings("val1", nodes[3].name_and_version.name);
     try expect(.field_end == nodes[4]);
     try expect(.stanza_end == nodes[5]);
     try expect(.stanza == nodes[6]);
@@ -87,6 +75,33 @@ test "two stanzas" {
     try expect(.field_end == nodes[9]);
     try expect(.stanza_end == nodes[10]);
     try expect(.eof == nodes[11]);
+}
+
+test "package and version" {
+    const expect = testing.expect;
+    const source =
+        \\Package: mypackage
+        \\Version: 1.2.3
+    ;
+
+    const alloc = std.testing.allocator;
+    var parser = try parse.Parser.init(alloc, source);
+    defer parser.deinit();
+    try parser.parse();
+
+    const nodes = parser.nodes.items;
+    try expect(.root == nodes[0]);
+    try expect(.stanza == nodes[1]);
+    try expect(.field == nodes[2]);
+    try expect(.name_and_version == nodes[3]);
+    try testing.expectEqualStrings("mypackage", nodes[3].name_and_version.name);
+    try expect(.field_end == nodes[4]);
+    try expect(.field == nodes[5]);
+    try expect(.string_node == nodes[6]);
+    try testing.expectEqualStrings("1.2.3", nodes[6].string_node.value);
+    try expect(.field_end == nodes[7]);
+    try expect(.stanza_end == nodes[8]);
+    try expect(.eof == nodes[9]);
 }
 
 test "tokenize" {
