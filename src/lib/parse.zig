@@ -372,10 +372,10 @@ pub const Tokenizer = struct {
         version_literal_r_digit,
         expect_version,
         newline,
-        open_angle,
-        open_angle_equal,
-        close_angle,
-        close_angle_equal,
+        open_angle, // <
+        open_angle_equal, // <=
+        close_angle, // >
+        close_angle_equal, // >=
         equal,
         unparsed,
         invalid,
