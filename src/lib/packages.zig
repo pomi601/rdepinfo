@@ -161,6 +161,78 @@ const Repository = struct {
     }
 };
 
+const Index = struct {
+    const MapType = std.StringHashMap(IndexVersion);
+    items: MapType,
+
+    const IndexVersion = union(enum) {
+        single: VersionIndex,
+        multiple: std.ArrayList(VersionIndex),
+    };
+    const VersionIndex = struct { version: []const u8, index: usize };
+
+    /// Create an index of the repo. Caller must deinit the returned index
+    /// with the same allocator.
+    pub fn init(alloc: Allocator, repo: Repository) !Index {
+        // Index only supports up to max Index.Size items.
+        if (repo.packages.len > std.math.maxInt(MapType.Size)) return error.OutOfMemory;
+        var out = MapType.init(alloc);
+        try out.ensureTotalCapacity(@intCast(repo.packages.len));
+
+        const slice = repo.packages.slice();
+        const names = slice.items(.name);
+        const versions = slice.items(.version);
+
+        var index: usize = 0;
+        while (index < repo.packages.len) : (index += 1) {
+            const name = names[index];
+            const ver = versions[index].string;
+
+            if (out.getPtr(name)) |p| {
+                switch (p.*) {
+                    .single => |vi| {
+                        p.* = .{
+                            .multiple = std.ArrayList(VersionIndex).init(alloc),
+                        };
+                        try p.multiple.append(vi);
+                        try p.multiple.append(.{
+                            .version = ver,
+                            .index = index,
+                        });
+                    },
+                    .multiple => |*l| {
+                        try l.append(.{
+                            .version = ver,
+                            .index = index,
+                        });
+                    },
+                }
+            } else {
+                out.putAssumeCapacityNoClobber(name, .{
+                    .single = .{
+                        .version = ver,
+                        .index = index,
+                    },
+                });
+            }
+        }
+        return .{ .items = out };
+    }
+
+    pub fn deinit(self: *Index) void {
+        var it = self.items.valueIterator();
+        while (it.next()) |v| switch (v.*) {
+            .single => continue,
+            .multiple => |l| {
+                l.deinit();
+            },
+        };
+
+        self.items.deinit();
+        self.* = undefined;
+    }
+};
+
 test "PACKAGES.gz" {
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
@@ -202,4 +274,18 @@ test "PACKAGES.gz" {
     try testing.expectEqualStrings("1.0", repo.packages.items(.version)[1].string);
     try testing.expectEqualStrings("AATtools", repo.packages.items(.name)[2]);
     try testing.expectEqualStrings("0.0.2", repo.packages.items(.version)[2].string);
+
+    // index
+    var index = try Index.init(alloc, repo);
+    defer index.deinit();
+    try testing.expect(index.items.count() <= repo.packages.len);
+
+    std.debug.print("Index count = {}\n", .{index.items.count()});
+
+    try testing.expectEqual(0, index.items.get("A3").?.single.index);
+    try testing.expectEqualStrings("1.0.0", index.items.get("A3").?.single.version);
+    try testing.expectEqual(1, index.items.get("AalenJohansen").?.single.index);
+    try testing.expectEqualStrings("1.0", index.items.get("AalenJohansen").?.single.version);
+    try testing.expectEqual(2, index.items.get("AATtools").?.single.index);
+    try testing.expectEqualStrings("0.0.2", index.items.get("AATtools").?.single.version);
 }
