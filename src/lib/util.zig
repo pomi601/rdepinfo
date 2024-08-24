@@ -30,3 +30,20 @@ pub fn decompressGzipFile(alloc: Allocator, abs_or_rel_path: []const u8) ![]u8 {
     try std.compress.gzip.decompress(file.reader(), bytes.writer());
     return bytes.toOwnedSlice();
 }
+
+/// Read entire file. Caller must free returned slice using the same
+/// allocator.
+pub fn readFile(alloc: Allocator, abs_or_rel_path: []const u8) ![]const u8 {
+    const file = try std.fs.cwd().openFile(abs_or_rel_path, .{});
+    defer file.close();
+    return try file.readToEndAlloc(alloc, std.math.maxInt(usize));
+}
+
+/// Read entire file, possibly gzip. Caller must free returned slice
+/// using the same allocator.
+pub fn readFileMaybeGzip(alloc: Allocator, abs_or_rel_path: []const u8) ![]const u8 {
+    if (try isGzipFile(abs_or_rel_path))
+        return try decompressGzipFile(alloc, abs_or_rel_path);
+
+    return try readFile(alloc, abs_or_rel_path);
+}
