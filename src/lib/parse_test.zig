@@ -38,9 +38,9 @@ test "parse" {
     ;
     const alloc = std.testing.allocator;
 
-    var parser = try parse.Parser.init(alloc, source);
+    var parser = try parse.Parser.init(alloc);
     defer parser.deinit();
-    try parser.parse();
+    try parser.parse(source);
 
     // std.debug.print("\nParser nodes:", .{});
     // for (parser.nodes.items) |node| {
@@ -57,9 +57,9 @@ test "two stanzas" {
     ;
 
     const alloc = std.testing.allocator;
-    var parser = try parse.Parser.init(alloc, source);
+    var parser = try parse.Parser.init(alloc);
     defer parser.deinit();
-    try parser.parse();
+    try parser.parse(source);
 
     const nodes = parser.nodes.items;
     try expect(.root == nodes[0]);
@@ -85,9 +85,9 @@ test "package and version" {
     ;
 
     const alloc = std.testing.allocator;
-    var parser = try parse.Parser.init(alloc, source);
+    var parser = try parse.Parser.init(alloc);
     defer parser.deinit();
-    try parser.parse();
+    try parser.parse(source);
 
     const nodes = parser.nodes.items;
     try expect(.root == nodes[0]);

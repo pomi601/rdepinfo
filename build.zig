@@ -40,8 +40,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = dep_optimize,
     }).module("cmdline");
-
     exe.root_module.addImport("cmdline", cmdline);
+
+    const string_storage = b.dependency("string-storage", .{
+        .target = target,
+        .optimize = dep_optimize,
+    }).module("string-storage");
+    exe.root_module.addImport("string-storage", string_storage);
 
     b.installArtifact(exe);
     // -- end executable -----------------------------------------------------
@@ -64,6 +69,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lib_unit_tests.root_module.addImport("string-storage", string_storage);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -72,6 +78,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe_unit_tests.root_module.addImport("string-storage", string_storage);
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

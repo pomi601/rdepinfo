@@ -2,6 +2,9 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
+const string_storage = @import("string-storage");
+const StringStorage = string_storage.StringStorage;
+
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
 
@@ -24,14 +27,13 @@ const Repository = struct {
     };
 
     alloc: Allocator,
-    strings: std.ArrayList(u8),
+    strings: ?StringStorage = null,
     packages: std.MultiArrayList(Package),
 
     /// Call deinit when finished.
-    pub fn init(alloc: Allocator) Repository {
+    pub fn init(alloc: Allocator) !Repository {
         return .{
             .alloc = alloc,
-            .strings = std.ArrayList(u8).init(alloc),
             .packages = .{},
         };
     }
@@ -51,7 +53,7 @@ const Repository = struct {
         for (slice.items(.linkingTo)) |x| {
             self.alloc.free(x);
         }
-        self.strings.deinit();
+        if (self.strings) |*s| s.deinit();
         self.packages.deinit(self.alloc);
         self.* = undefined;
     }
@@ -59,16 +61,21 @@ const Repository = struct {
     /// Read packages information from provided source. Expects Debian
     /// Control File format, same as R PACKAGES file.
     pub fn read(self: *Repository, source: []const u8) !void {
-        var parser = try parse.Parser.init(self.alloc, source);
+        var parser = try parse.Parser.init(self.alloc);
         defer parser.deinit();
-        try parser.parse();
+        try parser.parse(source);
+
+        // take over parser string storage
+        if (self.strings) |_| return error.InvalidState;
+        self.strings = try parser.claimStrings();
+        if (self.strings == null) return error.InvalidState;
 
         // reserve estimated space and free before exit (empirical from CRAN PACKAGES)
         try self.packages.ensureTotalCapacity(self.alloc, parser.nodes.items.len / 30);
         defer self.packages.shrinkAndFree(self.alloc, self.packages.len);
 
-        // reserve estimated space for strings
-        try self.strings.ensureTotalCapacity(parser.nodes.items.len / 30 * 16);
+        // reserve estimated additional space for strings
+        try self.strings.?.ensureCapacity(parser.nodes.items.len / 30 * 16);
 
         // reserve working list of []NameAndVersionConstraint
         var nav_list = try std.ArrayList(NameAndVersionConstraint).initCapacity(self.alloc, 16);
@@ -93,7 +100,7 @@ const Repository = struct {
 
                 .field => |field| {
                     if (std.mem.eql(u8, "Package", field.name)) {
-                        result.name = try parsePackageName(nodes, &index, &self.strings);
+                        result.name = try parsePackageName(nodes, &index, &self.strings.?);
                     } else if (std.mem.eql(u8, "Version", field.name)) {
                         result.version = try parsePackageVersion(nodes, &index);
                     } else if (std.mem.eql(u8, "Depends", field.name)) {
@@ -116,13 +123,11 @@ const Repository = struct {
         }
     }
 
-    fn parsePackageName(nodes: []Parser.Node, index: *usize, strings: *std.ArrayList(u8)) ![]const u8 {
+    fn parsePackageName(nodes: []Parser.Node, index: *usize, strings: *StringStorage) ![]const u8 {
         index.* += 1;
         switch (nodes[index.*]) {
             .name_and_version => |nv| {
-                const start = strings.items.len;
-                try strings.appendSlice(nv.name);
-                return strings.items[start..strings.items.len];
+                return try strings.append(nv.name);
             },
             // expect .name_and_version immediately after .field for a Package field
             else => unreachable,
@@ -239,13 +244,13 @@ test "PACKAGES.gz" {
     const alloc = testing.allocator;
 
     const source = try util.readFileMaybeGzip(alloc, path);
-    defer alloc.free(source);
+    // will be freed directly after parse
 
     var timer = try std.time.Timer.start();
 
-    var parser = try parse.Parser.init(alloc, source);
+    var parser = try parse.Parser.init(alloc);
     defer parser.deinit();
-    parser.parse() catch |err| switch (err) {
+    parser.parse(source) catch |err| switch (err) {
         error.ParseError => {
             if (parser.parse_error) |perr| {
                 std.debug.print("ERROR: ParseError: {s}: {}:{s}\n", .{ perr.message, perr.token, source[perr.token.loc.start..perr.token.loc.end] });
@@ -254,16 +259,23 @@ test "PACKAGES.gz" {
         error.OutOfMemory => {
             std.debug.print("ERROR: OutOfMemory\n", .{});
         },
+        else => unreachable,
     };
+
     std.debug.print("Parse to AST only = {}ms\n", .{@divFloor(timer.lap(), 1_000_000)});
     std.debug.print("Parser nodes: {d}\n", .{parser.nodes.items.len});
     std.debug.print("Number of stanzas parsed: {d}\n", .{parser.numStanzas()});
 
     // read entire repo
-    var repo = Repository.init(alloc);
+    var repo = try Repository.init(alloc);
     defer repo.deinit();
     try repo.read(source);
     std.debug.print("Parse to Repository ({} packages) = {}ms\n", .{ repo.packages.len, @divFloor(timer.lap(), 1_000_000) });
+
+    // after parser.parse() returns, we should be able to immediate
+    // release the source. Note that repo.read() also uses it in this
+    // test.
+    alloc.free(source);
 
     // Current PACKAGES has this as the first stanza:
     // Package: A3

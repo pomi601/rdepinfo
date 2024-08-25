@@ -3,6 +3,8 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
+const StringStorage = @import("string-storage").StringStorage;
+
 const version = @import("version.zig");
 const Version = version.Version;
 const Constraint = version.Constraint;
@@ -14,11 +16,12 @@ const VersionConstraint = version.VersionConstraint;
 /// generated from a moderately complicated example.
 pub const Parser = struct {
     alloc: Allocator,
-    source: []const u8,
+    strings: ?StringStorage,
     nodes: NodeList,
     parse_error: ?ParseError = null,
 
-    // private, for use during parsing
+    // private, for use only during parsing. undefined otherwise.
+    _source: []const u8,
     _tokenizer: Tokenizer,
 
     pub const ParseError = struct {
@@ -67,19 +70,30 @@ pub const Parser = struct {
         }
     };
 
-    pub fn init(alloc: Allocator, source: []const u8) !Parser {
+    pub fn init(alloc: Allocator) !Parser {
         return .{
             .alloc = alloc,
-            .source = source,
-            .nodes = try std.ArrayList(Node).initCapacity(alloc, source.len / 10),
-            ._tokenizer = Tokenizer.init(source),
+            .strings = try StringStorage.init(alloc, .{}),
+            .nodes = std.ArrayList(Node).init(alloc),
+            ._source = "",
+            ._tokenizer = undefined,
         };
     }
 
     pub fn deinit(self: *Parser) void {
         self._tokenizer.deinit();
         self.nodes.deinit();
+        if (self.strings) |*s| s.deinit();
         self.* = undefined;
+    }
+
+    /// Take over ownership of strings storage. Must call deinit using
+    /// the same allocator.
+    pub fn claimStrings(self: *Parser) !StringStorage {
+        if (self.strings) |s| {
+            self.strings = null;
+            return s;
+        } else return error.InvalidState;
     }
 
     pub fn numStanzas(self: Parser) usize {
@@ -91,14 +105,19 @@ pub const Parser = struct {
     }
 
     /// Parse source that was provided to init().
-    pub fn parse(self: *Parser) error{ ParseError, OutOfMemory }!void {
-        try self.nodes.append(Node{ .root = .{} });
+    pub fn parse(self: *Parser, source: []const u8) error{ ParseError, OutOfMemory, InvalidState }!void {
+        // set up source and nodes buffer
+        self._source = source;
+        try self.nodes.ensureTotalCapacity(source.len / 10);
+        self._tokenizer = Tokenizer.init(source);
+
+        try self.appendNode(Node{ .root = .{} });
 
         while (true) {
             const token = try self.parseStanza();
             if (token.tag == .eof) break;
         }
-        try self.nodes.append(Node{ .eof = {} });
+        try self.appendNode(Node{ .eof = {} });
 
         if (self.parse_error) |_| {
             return error.ParseError;
@@ -106,7 +125,7 @@ pub const Parser = struct {
     }
 
     fn parseStanza(self: *Parser) !Token {
-        try self.nodes.append(Node{ .stanza = .{} });
+        try self.appendNode(Node{ .stanza = .{} });
 
         var token: Token = undefined;
         while (true) {
@@ -119,7 +138,7 @@ pub const Parser = struct {
             }
         }
 
-        try self.nodes.append(Node{ .stanza_end = {} });
+        try self.appendNode(Node{ .stanza_end = {} });
         return token;
     }
 
@@ -135,7 +154,7 @@ pub const Parser = struct {
                     if (expect_colon.tag != .colon)
                         return self.parseError(expect_colon, "expected a colon after field name");
 
-                    try self.nodes.append(.{ .field = field });
+                    try self.appendNode(.{ .field = field });
                     token = try self.parseValue();
                     switch (token.tag) {
                         // .end_stanza token replaces .end_field if it's the last field in a stanza
@@ -155,7 +174,7 @@ pub const Parser = struct {
             }
         }
 
-        try self.nodes.append(Node{ .field_end = {} });
+        try self.appendNode(Node{ .field_end = {} });
         return token;
     }
 
@@ -203,20 +222,20 @@ pub const Parser = struct {
                 .identifier => switch (token.tag) {
                     .comma => {
                         state = .start;
-                        try self.nodes.append(node);
+                        try self.appendNode(node);
                     },
                     .open_round => {
                         state = .identifier_open_round;
                     },
                     .eof, .end_field, .end_stanza => {
                         state = .start;
-                        try self.nodes.append(node);
+                        try self.appendNode(node);
                         break;
                     },
                     else => {
                         // switch to string, starting back at the first token we saw
                         node = Node{
-                            .string_node = .{ .value = self.source[start..token.loc.end] },
+                            .string_node = .{ .value = self._source[start..token.loc.end] },
                         };
                         state = .string;
                     },
@@ -237,7 +256,7 @@ pub const Parser = struct {
 
                         state = .start;
                         node.name_and_version.version_constraint = VersionConstraint.init(constraint, ver);
-                        try self.nodes.append(node);
+                        try self.appendNode(node);
 
                         const expect_close_round = self._tokenizer.next();
                         if (expect_close_round.tag != .close_round)
@@ -249,19 +268,19 @@ pub const Parser = struct {
                     else => {
                         // switch to string
                         node = Node{
-                            .string_node = .{ .value = self.source[start..token.loc.end] },
+                            .string_node = .{ .value = self._source[start..token.loc.end] },
                         };
                         state = .string;
                     },
                 },
                 .string => switch (token.tag) {
                     .eof, .end_field, .end_stanza => {
-                        try self.nodes.append(node);
+                        try self.appendNode(node);
                         break;
                     },
                     else => {
                         // extend string
-                        node.string_node.value = self.source[start..token.loc.end];
+                        node.string_node.value = self._source[start..token.loc.end];
                     },
                 },
             }
@@ -270,8 +289,27 @@ pub const Parser = struct {
         return token;
     }
 
+    fn appendNode(self: *Parser, node: Node) error{ OutOfMemory, ParseError, InvalidState }!void {
+        if (self.strings) |*strings| {
+            var final = node;
+            switch (final) {
+                .string_node => |*s| {
+                    s.value = try strings.append(s.value);
+                },
+                .field => |*x| {
+                    x.name = try strings.append(x.name);
+                },
+                .name_and_version => |*x| {
+                    x.name = try strings.append(x.name);
+                },
+                else => {},
+            }
+            try self.nodes.append(final);
+        } else return error.InvalidState;
+    }
+
     fn lexeme(self: *Parser, token: Token) error{ParseError}![]const u8 {
-        return token.lexeme(self.source) orelse b: {
+        return token.lexeme(self._source) orelse b: {
             _ = self.parseError(token, "expected lexeme");
             break :b error.ParseError;
         };

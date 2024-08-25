@@ -12,11 +12,13 @@
 const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const StringStorage = @import("string-storage").StringStorage;
 const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
 
+strings: StringStorage,
 depends: []NameAndVersionConstraint = &.{},
 suggests: []NameAndVersionConstraint = &.{},
 imports: []NameAndVersionConstraint = &.{},
@@ -27,20 +29,21 @@ pub fn deinit(self: *Self, alloc: Allocator) void {
     alloc.free(self.suggests);
     alloc.free(self.imports);
     alloc.free(self.linkingTo);
+    self.strings.deinit();
     self.* = undefined;
 }
 
 pub fn fromSource(alloc: Allocator, source: []const u8) !Self {
     // Parse the source into an AST
-    var parser = try Parser.init(alloc, source);
+    var parser = try Parser.init(alloc);
     defer parser.deinit();
-    try parser.parse();
+    try parser.parse(source);
 
-    return fromAst(alloc, parser.nodes.items, 0);
+    return fromAst(alloc, parser.nodes.items, 0, try parser.claimStrings());
 }
 
 /// Parse one stanza denoted by stanza_index.
-pub fn fromAst(alloc: Allocator, nodes: []Parser.Node, stanza_index: usize) !Self {
+pub fn fromAst(alloc: Allocator, nodes: []Parser.Node, stanza_index: usize, strings: StringStorage) !Self {
     // Parsing the AST for this use case is easy, since we only care
     // about the first stanza. So we can iterate through nodes until
     // we hit the end-stanza node.
@@ -88,6 +91,7 @@ pub fn fromAst(alloc: Allocator, nodes: []Parser.Node, stanza_index: usize) !Sel
     }
 
     return .{
+        .strings = strings,
         .depends = depends,
         .suggests = suggests,
         .imports = imports,

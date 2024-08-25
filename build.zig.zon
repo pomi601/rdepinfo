@@ -7,6 +7,10 @@
             .url = "https://github.com/anticrisis/zig-cmdline/archive/refs/tags/v0.3.0.tar.gz",
             .hash = "1220caf25a7fced614c18cc407e2d9e0dd98e111d145c791fb170aab5fe2158d73bf",
         },
+        .@"string-storage" = .{
+            .url = "https://codeberg.org/mocompute/string-storage/archive/main.tar.gz",
+            .hash = "122043ff0e936599b4172de28a1c9dac4c54f6d41f691f04acf2274af81510b3a522",
+        },
     },
 
     .paths = .{
