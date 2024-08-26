@@ -19,6 +19,8 @@ const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
 
+const packages = @import("packages.zig");
+
 strings: StringStorage,
 depends: []NameAndVersionConstraint = &.{},
 suggests: []NameAndVersionConstraint = &.{},
@@ -121,6 +123,7 @@ fn parsePackages(
 }
 
 test "RDescription" {
+    const expect = testing.expect;
     const expectEqual = testing.expectEqual;
     const expectEqualStrings = testing.expectEqualStrings;
     const data =
@@ -199,19 +202,24 @@ test "RDescription" {
     ;
 
     const alloc = std.testing.allocator;
-    var rdv2 = try Self.fromSource(alloc, data);
-    defer rdv2.deinit(alloc);
 
-    try expectEqualStrings("R", rdv2.depends[0].name);
-    try expectEqual(.gte, rdv2.depends[0].version_constraint.constraint);
-    try expectEqual(3, rdv2.depends[0].version_constraint.version.major);
-    try expectEqual(6, rdv2.depends[0].version_constraint.version.minor);
-    try expectEqual(0, rdv2.depends[0].version_constraint.version.patch);
-    try expectEqualStrings("usethis", rdv2.depends[1].name);
-    try expectEqual(.gte, rdv2.depends[1].version_constraint.constraint);
-    try expectEqual(2, rdv2.depends[1].version_constraint.version.major);
-    try expectEqual(1, rdv2.depends[1].version_constraint.version.minor);
-    try expectEqual(6, rdv2.depends[1].version_constraint.version.patch);
+    var repo = try packages.Repository.init(alloc);
+    defer repo.deinit();
+    try repo.read(data);
+    const package_ = repo.first();
+    try expect(package_ != null);
+    const package = package_.?;
+
+    try expectEqualStrings("R", package.depends[0].name);
+    try expectEqual(.gte, package.depends[0].version_constraint.constraint);
+    try expectEqual(3, package.depends[0].version_constraint.version.major);
+    try expectEqual(6, package.depends[0].version_constraint.version.minor);
+    try expectEqual(0, package.depends[0].version_constraint.version.patch);
+    try expectEqualStrings("usethis", package.depends[1].name);
+    try expectEqual(.gte, package.depends[1].version_constraint.constraint);
+    try expectEqual(2, package.depends[1].version_constraint.version.major);
+    try expectEqual(1, package.depends[1].version_constraint.version.minor);
+    try expectEqual(6, package.depends[1].version_constraint.version.patch);
 }
 
 const Self = @This();

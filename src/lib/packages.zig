@@ -27,7 +27,7 @@ const recommended_packages = .{
     "nlme",    "nnet",       "rpart",   "spatial", "survival",
 };
 
-const Repository = struct {
+pub const Repository = struct {
     const Package = struct {
         name: []const u8 = "",
         version: Version = .{ .string = "" },
@@ -91,6 +91,11 @@ const Repository = struct {
 
     pub fn iter(self: Repository) Iterator {
         return Iterator.init(self);
+    }
+
+    pub fn first(self: Repository) ?Package {
+        var it = self.iter();
+        return it.next();
     }
 
     /// Read packages information from provided source. Expects Debian
