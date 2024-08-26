@@ -1,5 +1,5 @@
 const std = @import("std");
-const Repository = @import("packages.zig").Repository;
+const Repository = @import("repository.zig").Repository;
 
 const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
