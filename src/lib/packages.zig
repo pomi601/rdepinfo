@@ -371,28 +371,64 @@ test "PACKAGES sanity check" {
     var index = try Index.init(alloc, repo);
     defer index.deinit();
 
+    var unsatisfied = std.StringHashMap(std.ArrayList(NameAndVersionConstraint)).init(alloc);
+    defer {
+        var it = unsatisfied.iterator();
+        while (it.next()) |x| x.value_ptr.deinit();
+        unsatisfied.deinit();
+    }
+
     var it = repo.iter();
     while (it.next()) |p| {
-        for (p.depends) |d| top: {
-            if (isBasePackage(d.name)) continue;
-            if (isRecommendedPackage(d.name)) continue;
-            if (index.items.get(d.name)) |entry| switch (entry) {
-                .single => |e| {
-                    if (d.version_constraint.satisfied(e.version)) break;
-                },
-                .multiple => |es| {
-                    for (es.items) |e| {
-                        if (d.version_constraint.satisfied(e.version)) break :top;
-                    }
-                },
-            };
+        const deps = try unsatisfiedDependencies(alloc, index, p.depends);
+        const impo = try unsatisfiedDependencies(alloc, index, p.imports);
+        const link = try unsatisfiedDependencies(alloc, index, p.linkingTo);
+        defer alloc.free(deps);
+        defer alloc.free(impo);
+        defer alloc.free(link);
+
+        const res = try unsatisfied.getOrPut(p.name);
+        if (!res.found_existing) res.value_ptr.* = std.ArrayList(NameAndVersionConstraint).init(alloc);
+        try res.value_ptr.appendSlice(deps);
+        try res.value_ptr.appendSlice(impo);
+        try res.value_ptr.appendSlice(link);
+    }
+
+    var un_it = unsatisfied.iterator();
+    while (un_it.next()) |u| {
+        for (u.value_ptr.items) |nav| {
             std.debug.print("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
-                p.name,
-                d.name,
-                d.version_constraint,
+                u.key_ptr.*,
+                nav.name,
+                nav.version_constraint,
             });
         }
     }
+}
+
+pub fn unsatisfiedDependencies(
+    alloc: Allocator,
+    index: Index,
+    depends: []NameAndVersionConstraint,
+) ![]NameAndVersionConstraint {
+    var out = std.ArrayList(NameAndVersionConstraint).init(alloc);
+
+    for (depends) |d| top: {
+        if (isBasePackage(d.name)) continue;
+        if (isRecommendedPackage(d.name)) continue;
+        if (index.items.get(d.name)) |entry| switch (entry) {
+            .single => |e| {
+                if (d.version_constraint.satisfied(e.version)) break;
+            },
+            .multiple => |es| {
+                for (es.items) |e| {
+                    if (d.version_constraint.satisfied(e.version)) break :top;
+                }
+            },
+        };
+        try out.append(d);
+    }
+    return out.toOwnedSlice();
 }
 
 pub fn isBasePackage(name: []const u8) bool {
@@ -403,8 +439,8 @@ pub fn isBasePackage(name: []const u8) bool {
 }
 
 pub fn isRecommendedPackage(name: []const u8) bool {
-    inline for (base_packages) |base| {
-        if (std.mem.eql(u8, base, name)) return true;
+    inline for (recommended_packages) |reco| {
+        if (std.mem.eql(u8, reco, name)) return true;
     }
     return false;
 }
