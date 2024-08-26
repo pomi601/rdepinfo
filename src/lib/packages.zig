@@ -9,8 +9,6 @@ const StringStorage = string_storage.StringStorage;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
 
-const util = @import("util.zig");
-
 const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const Version = version.Version;
@@ -296,7 +294,7 @@ test "PACKAGES.gz" {
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
 
-    var source: ?[]const u8 = try util.readFileMaybeGzip(alloc, path);
+    var source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
     try testing.expect(source != null);
     errdefer if (source) |s| alloc.free(s);
 
@@ -361,7 +359,7 @@ test "PACKAGES sanity check" {
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
-    const source: ?[]const u8 = try util.readFileMaybeGzip(alloc, path);
+    const source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
     errdefer if (source) |s| alloc.free(s);
 
     var repo = try Repository.init(alloc);

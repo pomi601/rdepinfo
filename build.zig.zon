@@ -13,7 +13,7 @@
         },
         .mos = .{
             .url = "https://codeberg.org/mocompute/mos/archive/main.tar.gz",
-            .hash = "122009c2cd35e2dab0d6050f6a698d50d7050d3a79d45ae4d2022c2bbbdd47ffbc62",
+            .hash = "1220b6da547644c2792c9490e3a813978c90b6aae8519b056a13ba40af1968cff8e7",
         },
     },
 

@@ -6,5 +6,4 @@ test "library" {
     _ = @import("RDescription.zig");
     _ = @import("packages.zig");
     _ = @import("parse.zig");
-    _ = @import("util.zig");
 }
