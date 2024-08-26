@@ -16,6 +16,18 @@ const Version = version.Version;
 
 const RDescription = @import("RDescription.zig");
 
+const base_packages = .{
+    "base",   "compiler", "datasets", "graphics", "grDevices",
+    "grid",   "methods",  "parallel", "splines",  "stats",
+    "stats4", "tcltk",    "tools",    "utils",    "R",
+};
+
+const recommended_packages = .{
+    "boot",    "class",      "MASS",    "cluster", "codetools",
+    "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
+    "nlme",    "nnet",       "rpart",   "spatial", "survival",
+};
+
 const Repository = struct {
     const Package = struct {
         name: []const u8 = "",
@@ -29,6 +41,26 @@ const Repository = struct {
     alloc: Allocator,
     strings: ?StringStorage = null,
     packages: std.MultiArrayList(Package),
+
+    const Iterator = struct {
+        index: usize = 0,
+        slice: std.MultiArrayList(Package).Slice,
+
+        pub fn init(repo: Repository) Iterator {
+            return .{
+                .slice = repo.packages.slice(),
+            };
+        }
+
+        pub fn next(self: *Iterator) ?Package {
+            if (self.index < self.slice.len) {
+                const out = self.index;
+                self.index += 1;
+                return self.slice.get(out);
+            }
+            return null;
+        }
+    };
 
     /// Call deinit when finished.
     pub fn init(alloc: Allocator) !Repository {
@@ -56,6 +88,10 @@ const Repository = struct {
         if (self.strings) |*s| s.deinit();
         self.packages.deinit(self.alloc);
         self.* = undefined;
+    }
+
+    pub fn iter(self: Repository) Iterator {
+        return Iterator.init(self);
     }
 
     /// Read packages information from provided source. Expects Debian
@@ -173,8 +209,24 @@ const Index = struct {
     const IndexVersion = union(enum) {
         single: VersionIndex,
         multiple: std.ArrayList(VersionIndex),
+        pub fn format(self: IndexVersion, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = options;
+            _ = fmt;
+            switch (self) {
+                .single => |vi| {
+                    try writer.print("(IndexVersion.single {s} {})", .{ vi.version.string, vi.index });
+                },
+                .multiple => |l| {
+                    try writer.print("(IndexVersion.multiple", .{});
+                    for (l.items) |x| {
+                        try writer.print(" {s}", .{x.version});
+                    }
+                    try writer.print(")", .{});
+                },
+            }
+        }
     };
-    const VersionIndex = struct { version: []const u8, index: usize };
+    const VersionIndex = struct { version: Version, index: usize };
 
     /// Create an index of the repo. Caller must deinit the returned index
     /// with the same allocator.
@@ -191,7 +243,7 @@ const Index = struct {
         var index: usize = 0;
         while (index < repo.packages.len) : (index += 1) {
             const name = names[index];
-            const ver = versions[index].string;
+            const ver = versions[index];
 
             if (out.getPtr(name)) |p| {
                 switch (p.*) {
@@ -243,17 +295,18 @@ test "PACKAGES.gz" {
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
 
-    const source = try util.readFileMaybeGzip(alloc, path);
-    // will be freed directly after parse
+    var source: ?[]const u8 = try util.readFileMaybeGzip(alloc, path);
+    try testing.expect(source != null);
+    errdefer if (source) |s| alloc.free(s);
 
     var timer = try std.time.Timer.start();
 
     var parser = try parse.Parser.init(alloc);
     defer parser.deinit();
-    parser.parse(source) catch |err| switch (err) {
+    parser.parse(source.?) catch |err| switch (err) {
         error.ParseError => {
             if (parser.parse_error) |perr| {
-                std.debug.print("ERROR: ParseError: {s}: {}:{s}\n", .{ perr.message, perr.token, source[perr.token.loc.start..perr.token.loc.end] });
+                std.debug.print("ERROR: ParseError: {s}: {}:{s}\n", .{ perr.message, perr.token, source.?[perr.token.loc.start..perr.token.loc.end] });
             }
         },
         error.OutOfMemory => {
@@ -269,13 +322,14 @@ test "PACKAGES.gz" {
     // read entire repo
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    try repo.read(source);
+    try repo.read(source.?);
     std.debug.print("Parse to Repository ({} packages) = {}ms\n", .{ repo.packages.len, @divFloor(timer.lap(), 1_000_000) });
 
     // after parser.parse() returns, we should be able to immediate
     // release the source. Note that repo.read() also uses it in this
     // test.
-    alloc.free(source);
+    if (source) |s| alloc.free(s);
+    source = null;
 
     // Current PACKAGES has this as the first stanza:
     // Package: A3
@@ -295,9 +349,62 @@ test "PACKAGES.gz" {
     std.debug.print("Index count = {}\n", .{index.items.count()});
 
     try testing.expectEqual(0, index.items.get("A3").?.single.index);
-    try testing.expectEqualStrings("1.0.0", index.items.get("A3").?.single.version);
+    try testing.expectEqualStrings("1.0.0", index.items.get("A3").?.single.version.string);
     try testing.expectEqual(1, index.items.get("AalenJohansen").?.single.index);
-    try testing.expectEqualStrings("1.0", index.items.get("AalenJohansen").?.single.version);
+    try testing.expectEqualStrings("1.0", index.items.get("AalenJohansen").?.single.version.string);
     try testing.expectEqual(2, index.items.get("AATtools").?.single.index);
-    try testing.expectEqualStrings("0.0.2", index.items.get("AATtools").?.single.version);
+    try testing.expectEqualStrings("0.0.2", index.items.get("AATtools").?.single.version.string);
+}
+
+test "PACKAGES sanity check" {
+    const path = "PACKAGES.gz";
+    std.fs.cwd().access(path, .{}) catch return;
+    const alloc = testing.allocator;
+    const source: ?[]const u8 = try util.readFileMaybeGzip(alloc, path);
+    errdefer if (source) |s| alloc.free(s);
+
+    var repo = try Repository.init(alloc);
+    defer repo.deinit();
+    if (source) |s| try repo.read(s);
+    if (source) |s| alloc.free(s);
+
+    var index = try Index.init(alloc, repo);
+    defer index.deinit();
+
+    var it = repo.iter();
+    while (it.next()) |p| {
+        for (p.depends) |d| top: {
+            if (isBasePackage(d.name)) continue;
+            if (isRecommendedPackage(d.name)) continue;
+            if (index.items.get(d.name)) |entry| switch (entry) {
+                .single => |e| {
+                    if (d.version_constraint.satisfied(e.version)) break;
+                },
+                .multiple => |es| {
+                    for (es.items) |e| {
+                        if (d.version_constraint.satisfied(e.version)) break :top;
+                    }
+                },
+            };
+            std.debug.print("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
+                p.name,
+                d.name,
+                d.version_constraint,
+            });
+        }
+    }
+}
+
+pub fn isBasePackage(name: []const u8) bool {
+    inline for (base_packages) |base| {
+        if (std.mem.eql(u8, base, name)) return true;
+    }
+    return false;
+}
+
+pub fn isRecommendedPackage(name: []const u8) bool {
+    inline for (base_packages) |base| {
+        if (std.mem.eql(u8, base, name)) return true;
+    }
+    return false;
 }
