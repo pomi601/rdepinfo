@@ -13,8 +13,6 @@ const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const Version = version.Version;
 
-const RDescription = @import("RDescription.zig");
-
 // dependencies on these packages are not checked
 const base_packages = .{
     "base",   "compiler", "datasets", "graphics", "grDevices",
