@@ -9,7 +9,7 @@
         },
         .@"string-storage" = .{
             .url = "https://codeberg.org/mocompute/string-storage/archive/main.tar.gz",
-            .hash = "122043ff0e936599b4172de28a1c9dac4c54f6d41f691f04acf2274af81510b3a522",
+            .hash = "1220cd9f8bbc8819acd3c2132769993c18f47d19e2e62bb90e3c86bd4976b5e5fda4",
         },
     },
 
