@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const string_storage = @import("string-storage");
+const string_storage = @import("string_storage");
 const StringStorage = string_storage.StringStorage;
 
 const parse = @import("parse.zig");
@@ -16,12 +16,12 @@ const Version = version.Version;
 
 const RDescription = @import("RDescription.zig");
 
+// dependencies on these packages are not checked
 const base_packages = .{
     "base",   "compiler", "datasets", "graphics", "grDevices",
     "grid",   "methods",  "parallel", "splines",  "stats",
     "stats4", "tcltk",    "tools",    "utils",    "R",
 };
-
 const recommended_packages = .{
     "boot",    "class",      "MASS",    "cluster", "codetools",
     "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
