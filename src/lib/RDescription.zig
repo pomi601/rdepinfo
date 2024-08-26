@@ -10,6 +10,7 @@
 //! Depends, Suggests, Imports, LinkingTo
 
 const std = @import("std");
+const mos = @import("mos");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const StringStorage = @import("string_storage").StringStorage;
@@ -72,16 +73,16 @@ pub fn fromAst(alloc: Allocator, nodes: []Parser.Node, stanza_index: usize, stri
         if (node == .stanza_end) break;
         switch (node) {
             .field => |field| {
-                if (std.mem.eql(u8, "Depends", field.name)) {
+                if (mos.streql("Depends", field.name)) {
                     try parsePackages(nodes, &index, &list);
                     depends = try list.toOwnedSlice();
-                } else if (std.mem.eql(u8, "Suggests", field.name)) {
+                } else if (mos.streql("Suggests", field.name)) {
                     try parsePackages(nodes, &index, &list);
                     suggests = try list.toOwnedSlice();
-                } else if (std.mem.eql(u8, "Imports", field.name)) {
+                } else if (mos.streql("Imports", field.name)) {
                     try parsePackages(nodes, &index, &list);
                     imports = try list.toOwnedSlice();
-                } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
+                } else if (mos.streql("LinkingTo", field.name)) {
                     try parsePackages(nodes, &index, &list);
                     linkingTo = try list.toOwnedSlice();
                 }

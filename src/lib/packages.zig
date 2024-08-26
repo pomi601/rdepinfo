@@ -1,4 +1,5 @@
 const std = @import("std");
+const mos = @import("mos");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -135,20 +136,20 @@ const Repository = struct {
                 },
 
                 .field => |field| {
-                    if (std.mem.eql(u8, "Package", field.name)) {
+                    if (mos.streql("Package", field.name)) {
                         result.name = try parsePackageName(nodes, &index, &self.strings.?);
-                    } else if (std.mem.eql(u8, "Version", field.name)) {
+                    } else if (mos.streql("Version", field.name)) {
                         result.version = try parsePackageVersion(nodes, &index);
-                    } else if (std.mem.eql(u8, "Depends", field.name)) {
+                    } else if (mos.streql("Depends", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
                         result.depends = try nav_list.toOwnedSlice();
-                    } else if (std.mem.eql(u8, "Suggests", field.name)) {
+                    } else if (mos.streql("Suggests", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
                         result.suggests = try nav_list.toOwnedSlice();
-                    } else if (std.mem.eql(u8, "Imports", field.name)) {
+                    } else if (mos.streql("Imports", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
                         result.imports = try nav_list.toOwnedSlice();
-                    } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
+                    } else if (mos.streql("LinkingTo", field.name)) {
                         try parsePackages(nodes, &index, &nav_list);
                         result.linkingTo = try nav_list.toOwnedSlice();
                     }
@@ -433,14 +434,14 @@ pub fn unsatisfiedDependencies(
 
 pub fn isBasePackage(name: []const u8) bool {
     inline for (base_packages) |base| {
-        if (std.mem.eql(u8, base, name)) return true;
+        if (mos.streql(base, name)) return true;
     }
     return false;
 }
 
 pub fn isRecommendedPackage(name: []const u8) bool {
     inline for (recommended_packages) |reco| {
-        if (std.mem.eql(u8, reco, name)) return true;
+        if (mos.streql(reco, name)) return true;
     }
     return false;
 }

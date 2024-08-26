@@ -11,6 +11,10 @@
             .url = "https://codeberg.org/mocompute/string_storage/archive/main.tar.gz",
             .hash = "12205d991c3eaec1dfada3f298f671ab5a2088c24b903ae22b17587bd54fd494de61",
         },
+        .mos = .{
+            .url = "https://codeberg.org/mocompute/mos/archive/main.tar.gz",
+            .hash = "122009c2cd35e2dab0d6050f6a698d50d7050d3a79d45ae4d2022c2bbbdd47ffbc62",
+        },
     },
 
     .paths = .{
