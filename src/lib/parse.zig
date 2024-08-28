@@ -3,7 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const StringStorage = @import("string_storage").StringStorage;
+const StringStorage = @import("string_storage").IndexedStringStorage;
 
 const version = @import("version.zig");
 const Version = version.Version;
