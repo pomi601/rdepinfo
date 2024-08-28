@@ -1,19 +1,27 @@
 const std = @import("std");
+const mos = @import("mos");
 const cmdline = @import("cmdline");
+const Cmdline = cmdline.Options(.{});
 
-fn usage(opts: cmdline.Options) void {
-    std.debug.print("Usage: {s} [--verbose]\n", .{std.fs.path.basename(opts.argv0)});
+const Repository = @import("lib/repository.zig").Repository;
+
+fn usage(opts: Cmdline) void {
+    std.debug.print(
+        \\Usage: {s} [--verbose] PACKAGES...
+        \\  Positional arguments:
+        \\    PACKAGES: may be text or gzip file in R package repository format
+        \\
+    ,
+        .{std.fs.path.basename(opts.argv0)},
+    );
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
+    const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
-        // sadly this is not the max requested bytes -- it is reduced
-        // when alloc.free() is used
-        std.debug.print(
-            "GPA: total requested bytes: {}\n",
-            .{gpa.total_requested_bytes},
-        );
         if (gpa.deinit() == .leak)
             std.debug.print("Memory leak detected.\n", .{});
     }
@@ -22,34 +30,39 @@ pub fn main() !void {
     // current working directory
     const cwd = try std.fs.cwd().realpathAlloc(alloc, ".");
     defer alloc.free(cwd);
-    std.debug.print("cwd = {s}\n", .{cwd});
+    // std.debug.print("cwd = {s}\n", .{cwd});
 
     // command line options
-    var opts = try cmdline.Options.init(
+    var opts = try Cmdline.init(
         alloc,
         .{
             .{"verbose"},
         },
     );
     defer opts.deinit();
-    if (try opts.parse() == .err) {
+    if (try opts.parse() == .err or opts.positional().items.len < 1) {
         usage(opts);
         std.process.exit(1);
     }
-    opts.debugPrint();
+    // opts.debugPrint();
 
-    // get path on command line
-    const path = opts.positional().items[0];
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+    var repo = try Repository.init(alloc);
+    defer repo.deinit();
 
-    const bytes = try file.readToEndAlloc(alloc, 1024 * 1024);
-    defer alloc.free(bytes);
-    std.debug.print(
-        "GPA: total requested bytes: {}\n",
-        .{gpa.total_requested_bytes},
-    );
+    for (opts.positional().items) |path| {
+        const source_: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
+        defer if (source_) |s| alloc.free(s); // free before next iteration
 
-    const stdout = std.io.getStdOut();
-    try stdout.writeAll(bytes);
+        if (source_) |source| {
+            try std.fmt.format(stderr, "Reading file {s}...", .{path});
+            const count = try repo.read(source);
+            try std.fmt.format(stderr, " {} packages read.\n", .{count});
+        }
+    }
+
+    // const stdout = std.io.getStdOut();
+    // try stdout.writeAll(bytes);
+
+    try std.fmt.format(stdout, "Done.\n", .{});
+    try std.fmt.format(stdout, "Number of packages: {}\n", .{repo.packages.len});
 }

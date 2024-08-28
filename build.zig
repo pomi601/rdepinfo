@@ -34,8 +34,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.linkLibrary(lib);
-
     const mos = b.dependency("mos", .{
         .target = target,
         .optimize = dep_optimize,

@@ -4,12 +4,12 @@
     .minimum_zig_version = "0.13.0",
     .dependencies = .{
         .cmdline = .{
-            .url = "https://github.com/anticrisis/zig-cmdline/archive/refs/tags/v0.3.0.tar.gz",
-            .hash = "1220caf25a7fced614c18cc407e2d9e0dd98e111d145c791fb170aab5fe2158d73bf",
+            .url = "https://codeberg.org/mocompute/cmdline/archive/main.tar.gz",
+            .hash = "12209c5c1171949a5f84847c1042359f6221ddd7a6fb3f84148435e0b66f8f02028a",
         },
         .string_storage = .{
             .url = "https://codeberg.org/mocompute/string_storage/archive/main.tar.gz",
-            .hash = "1220d90ea83425617e8628aa3a8b3c85a8b3e20eb3f44c03c8bdd44bc21e49be36eb",
+            .hash = "1220cbeda750c5b69c71fe0e5d159f6a4f2f6233be4dfe82dace904cde951f098dd9",
         },
         .mos = .{
             .url = "https://codeberg.org/mocompute/mos/archive/main.tar.gz",

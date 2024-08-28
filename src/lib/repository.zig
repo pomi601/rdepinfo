@@ -106,15 +106,21 @@ pub const Repository = struct {
     }
 
     /// Read packages information from provided source. Expects Debian
-    /// Control File format, same as R PACKAGES file.
-    pub fn read(self: *Repository, source: []const u8) !void {
+    /// Control File format, same as R PACKAGES file. Returns number
+    /// of packages found.
+    pub fn read(self: *Repository, source: []const u8) !usize {
+        var count: usize = 0;
         var parser = try parse.Parser.init(self.alloc);
         defer parser.deinit();
         try parser.parse(source);
 
         // take over parser string storage
-        if (self.strings) |_| return error.InvalidState;
-        self.strings = try parser.claimStrings();
+        var parser_strings = try parser.claimStrings();
+        if (self.strings) |*ss| {
+            try ss.claimOther(&parser_strings);
+        } else {
+            self.strings = parser_strings;
+        }
         if (self.strings == null) return error.InvalidState;
 
         // reserve estimated space and free before exit (empirical from CRAN PACKAGES)
@@ -143,6 +149,7 @@ pub const Repository = struct {
                     try self.packages.append(self.alloc, result);
                     result = .{};
                     nav_list.clearRetainingCapacity();
+                    count += 1;
                 },
 
                 .field => |field| {
@@ -168,6 +175,7 @@ pub const Repository = struct {
                 else => continue,
             }
         }
+        return count;
     }
 
     fn parsePackageName(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
@@ -249,7 +257,7 @@ test "PACKAGES.gz" {
     // read entire repo
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    try repo.read(source.?);
+    _ = try repo.read(source.?);
     std.debug.print(
         "Parse to Repository ({} packages) = {}ms\n",
         .{ repo.packages.len, @divFloor(timer.lap(), 1_000_000) },
@@ -295,7 +303,7 @@ test "PACKAGES sanity check" {
 
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    if (source) |s| try repo.read(s);
+    if (source) |s| _ = try repo.read(s);
     if (source) |s| alloc.free(s);
 
     var index = try repo.createIndex();
