@@ -30,16 +30,25 @@ dump_available_packages <- function() {
     cat("Version: ", ap[i, "Version"], "\n", sep = "")
 
     field <- "Depends"
-    if (!is.na(ap[i, field]))
-      cat(field, ": ", ap[i, field], "\n", sep = "")
+    data <- ap[i, field]
+    if (!is.na(data)) {
+      data <- gsub("\\\n", "", data)
+      cat(field, ": ", data, "\n", sep = "")
+    }
 
     field <- "Imports"
-    if (!is.na(ap[i, field]))
-      cat(field, ": ", ap[i, field], "\n", sep = "")
+    data <- ap[i, field]
+    if (!is.na(ap[i, field])) {
+      data <- gsub("\\\n", "", data)
+      cat(field, ": ", data, "\n", sep = "")
+    }
 
     field <- "LinkingTo"
-    if (!is.na(ap[i, field]))
-      cat(field, ": ", ap[i, field], "\n", sep = "")
+    data <- ap[i, field]
+    if (!is.na(ap[i, field])) {
+      data <- gsub("\\\n", "", data)
+      cat(field, ": ", data, "\n", sep = "")
+    }
 
     cat("\n", sep = "")
   }
