@@ -74,7 +74,7 @@ const Program = struct {
         switch (res) {
             .err => |e| {
                 const msg = e.toMessage(self.alloc) catch "Unknown error.";
-                try std.fmt.format(stderr.writer(), "{s}\n", .{msg});
+                try stderr.writer().print("{s}\n", .{msg});
                 self.exitWithUsage();
             },
             else => {},
@@ -95,9 +95,8 @@ const Program = struct {
 
     pub fn run(self: *Self) !void {
         const stderr = self.stderr.writer();
-        const words = self.options.positional().items;
+        const words = self.options.positional();
         if (words.len < 1) self.exitWithUsage();
-
         const command = words[0];
 
         if (mem.eql(u8, "broken", command)) {
@@ -119,7 +118,7 @@ const Program = struct {
     fn biocUrls(self: *Self) !void {
         const stderr = self.stderr.writer();
         const stdout = self.stdout.writer();
-        const words = self.options.positional().items;
+        const words = self.options.positional();
         if (words.len < 2) {
             try stderr.print("Missing version number: '{s}'\n", .{words[0]});
             self.exitWithUsage();
@@ -136,7 +135,7 @@ const Program = struct {
         const stderr = self.stderr.writer();
         const stdout = self.stdout.writer();
 
-        const words = self.options.positional().items;
+        const words = self.options.positional();
         if (words.len < 2) {
             try std.fmt.format(self.stderr.writer(), "Missing files: '{s}'\n", .{words[0]});
             self.exitWithUsage();
