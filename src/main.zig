@@ -147,7 +147,25 @@ const Program = struct {
 
             if (source_) |source| {
                 try std.fmt.format(stderr, "Reading file {s}...", .{path});
-                const count = try self.repo.read(source);
+                const count = self.repo.read(source) catch |err| switch (err) {
+                    error.InvalidState => |e| {
+                        try stderr.print("INTERNAL ERROR: Invalid state. (Sorry.)\n", .{});
+                        return e;
+                    },
+                    error.ParseError => {
+                        if (self.repo.parse_error) |pe| {
+                            try stderr.print(
+                                "PARSE ERROR: {s}, {}: {s}\n",
+                                .{ pe.message, pe.token.tag, source[pe.token.loc.start..pe.token.loc.end] },
+                            );
+                            return err;
+                        } else unreachable;
+                    },
+                    else => |e| {
+                        try stderr.print("UNKOWN ERROR: {}\n", .{e});
+                        return e;
+                    },
+                };
                 try std.fmt.format(stderr, " {} packages read.\n", .{count});
             }
         }

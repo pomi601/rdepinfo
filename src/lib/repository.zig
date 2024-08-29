@@ -19,6 +19,7 @@ pub const Repository = struct {
     alloc: Allocator,
     strings: ?StringStorage = null,
     packages: std.MultiArrayList(Package),
+    parse_error: ?Parser.ParseError = null,
 
     pub const Index = repository_index.Index;
 
@@ -102,7 +103,15 @@ pub const Repository = struct {
         var count: usize = 0;
         var parser = try parse.Parser.init(self.alloc);
         defer parser.deinit();
-        try parser.parse(source);
+        parser.parse(source) catch |err| switch (err) {
+            error.ParseError => |e| {
+                self.parse_error = parser.parse_error;
+                return e;
+            },
+            else => |e| {
+                return e;
+            },
+        };
 
         // take over parser string storage
         var parser_strings = try parser.claimStrings();
