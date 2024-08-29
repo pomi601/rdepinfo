@@ -5,8 +5,7 @@ set -euo pipefail               # sane options for bash scripts
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 MY_R="source('$SCRIPT_DIR/rinfo.R'); "
 
-RSCRIPT=$(command -v Rscript)
-if [[ $? -ne 0 ]]; then
+if ! RSCRIPT=$(command -v Rscript); then
     echo "Rscript not found. Exiting."
     exit 1
 fi
@@ -82,10 +81,6 @@ parse()
                 exit 0
                 ;;
 
-            -v | --verbose )
-                OPT_VERBOSE="yes"
-                ;;
-
             --time )
                 OPT_TIME="TRUE"
                 ;;
@@ -115,12 +110,12 @@ fi
 while [[ $# -gt 0 ]]; do
     case "$1" in
         "depends" )
-            depends_flat $2
+            depends_flat "$2"
             exit $?
             ;;
 
         "depends-full" )
-            depends_full $2
+            depends_full "$2"
             exit $?
             ;;
 
