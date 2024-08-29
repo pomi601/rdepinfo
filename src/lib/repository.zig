@@ -13,24 +13,14 @@ const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const Version = version.Version;
 
-// dependencies on these packages are not checked
-const base_packages = .{
-    "base",   "compiler", "datasets", "graphics", "grDevices",
-    "grid",   "methods",  "parallel", "splines",  "stats",
-    "stats4", "tcltk",    "tools",    "utils",    "R",
-};
-const recommended_packages = .{
-    "boot",    "class",      "MASS",    "cluster", "codetools",
-    "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
-    "nlme",    "nnet",       "rpart",   "spatial", "survival",
-};
+const repository_index = @import("repository_index.zig");
 
 pub const Repository = struct {
     alloc: Allocator,
     strings: ?StringStorage = null,
     packages: std.MultiArrayList(Package),
 
-    pub const Index = @import("repository_index.zig").Index;
+    pub const Index = repository_index.Index;
 
     const Package = struct {
         name: []const u8 = "",
@@ -295,6 +285,7 @@ test "PACKAGES.gz" {
 }
 
 test "PACKAGES sanity check" {
+    const Ops = repository_index.Operations;
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
@@ -318,9 +309,9 @@ test "PACKAGES sanity check" {
 
     var it = repo.iter();
     while (it.next()) |p| {
-        const deps = try unsatisfiedDependencies(alloc, index, p.depends);
-        const impo = try unsatisfiedDependencies(alloc, index, p.imports);
-        const link = try unsatisfiedDependencies(alloc, index, p.linkingTo);
+        const deps = try Ops.unsatisfiedDependencies(alloc, index, p.depends);
+        const impo = try Ops.unsatisfiedDependencies(alloc, index, p.imports);
+        const link = try Ops.unsatisfiedDependencies(alloc, index, p.linkingTo);
         defer alloc.free(deps);
         defer alloc.free(impo);
         defer alloc.free(link);
@@ -342,43 +333,4 @@ test "PACKAGES sanity check" {
             });
         }
     }
-}
-
-pub fn unsatisfiedDependencies(
-    alloc: Allocator,
-    index: Repository.Index,
-    depends: []NameAndVersionConstraint,
-) ![]NameAndVersionConstraint {
-    var out = std.ArrayList(NameAndVersionConstraint).init(alloc);
-
-    for (depends) |d| top: {
-        if (isBasePackage(d.name)) continue;
-        if (isRecommendedPackage(d.name)) continue;
-        if (index.items.get(d.name)) |entry| switch (entry) {
-            .single => |e| {
-                if (d.version_constraint.satisfied(e.version)) break;
-            },
-            .multiple => |es| {
-                for (es.items) |e| {
-                    if (d.version_constraint.satisfied(e.version)) break :top;
-                }
-            },
-        };
-        try out.append(d);
-    }
-    return out.toOwnedSlice();
-}
-
-pub fn isBasePackage(name: []const u8) bool {
-    inline for (base_packages) |base| {
-        if (mos.streql(base, name)) return true;
-    }
-    return false;
-}
-
-pub fn isRecommendedPackage(name: []const u8) bool {
-    inline for (recommended_packages) |reco| {
-        if (mos.streql(reco, name)) return true;
-    }
-    return false;
 }

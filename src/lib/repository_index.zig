@@ -1,9 +1,24 @@
 const std = @import("std");
+const mos = @import("mos");
+const Allocator = std.mem.Allocator;
+
 const Repository = @import("repository.zig").Repository;
 
 const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const Version = version.Version;
+
+// dependencies on these packages are not checked
+const base_packages = .{
+    "base",   "compiler", "datasets", "graphics", "grDevices",
+    "grid",   "methods",  "parallel", "splines",  "stats",
+    "stats4", "tcltk",    "tools",    "utils",    "R",
+};
+const recommended_packages = .{
+    "boot",    "class",      "MASS",    "cluster", "codetools",
+    "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
+    "nlme",    "nnet",       "rpart",   "spatial", "survival",
+};
 
 pub const Index = struct {
     const MapType = std.StringHashMap(AvailableVersions);
@@ -100,5 +115,46 @@ pub const Index = struct {
 
         self.items.deinit();
         self.* = undefined;
+    }
+};
+
+pub const Operations = struct {
+    pub fn unsatisfiedDependencies(
+        alloc: Allocator,
+        index: Repository.Index,
+        depends: []NameAndVersionConstraint,
+    ) ![]NameAndVersionConstraint {
+        var out = std.ArrayList(NameAndVersionConstraint).init(alloc);
+
+        for (depends) |d| top: {
+            if (isBasePackage(d.name)) continue;
+            if (isRecommendedPackage(d.name)) continue;
+            if (index.items.get(d.name)) |entry| switch (entry) {
+                .single => |e| {
+                    if (d.version_constraint.satisfied(e.version)) break;
+                },
+                .multiple => |es| {
+                    for (es.items) |e| {
+                        if (d.version_constraint.satisfied(e.version)) break :top;
+                    }
+                },
+            };
+            try out.append(d);
+        }
+        return out.toOwnedSlice();
+    }
+
+    pub fn isBasePackage(name: []const u8) bool {
+        inline for (base_packages) |base| {
+            if (mos.streql(base, name)) return true;
+        }
+        return false;
+    }
+
+    pub fn isRecommendedPackage(name: []const u8) bool {
+        inline for (recommended_packages) |reco| {
+            if (mos.streql(reco, name)) return true;
+        }
+        return false;
     }
 };
