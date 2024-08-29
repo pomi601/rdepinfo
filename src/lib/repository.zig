@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 const mos = @import("mos");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -23,7 +24,7 @@ pub const Repository = struct {
 
     pub const Index = repository_index.Index;
 
-    const Package = struct {
+    pub const Package = struct {
         name: []const u8 = "",
         version: Version = .{ .string = "" },
         depends: []NameAndVersionConstraint = &.{},
@@ -32,7 +33,7 @@ pub const Repository = struct {
         linkingTo: []NameAndVersionConstraint = &.{},
     };
 
-    const Iterator = struct {
+    pub const Iterator = struct {
         index: usize = 0,
         slice: std.MultiArrayList(Package).Slice,
 
@@ -89,6 +90,19 @@ pub const Repository = struct {
     pub fn first(self: Repository) ?Package {
         var it = self.iter();
         return it.next();
+    }
+
+    /// Return package information for name.
+    pub fn findPackage(self: Repository, name: []const u8) ?Package {
+        const slice = self.packages.slice();
+        var index: usize = 0;
+        for (slice.items(.name)) |n| {
+            if (mem.eql(u8, n, name)) {
+                return slice.get(index);
+            }
+            index += 1;
+        }
+        return null;
     }
 
     /// Create an index of this repository. Caller must call deinit.
@@ -277,6 +291,10 @@ test "PACKAGES.gz" {
     try testing.expectEqualStrings("1.0", repo.packages.items(.version)[1].string);
     try testing.expectEqualStrings("AATtools", repo.packages.items(.name)[2]);
     try testing.expectEqualStrings("0.0.2", repo.packages.items(.version)[2].string);
+
+    const pack = repo.findPackage("A3");
+    try testing.expect(pack != null);
+    try testing.expectEqualStrings("A3", pack.?.name);
 
     // index
     var index = try repo.createIndex();

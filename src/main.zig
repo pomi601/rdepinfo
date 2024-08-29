@@ -30,18 +30,22 @@ fn usage(progname: []const u8) void {
         \\Usage: rdepinfo broken <file> [files...]
         \\Usage: rdepinfo bioc-url <version>
         \\  Commands:
-        \\    broken <file> [file...]     Using files in PACKAGES format,
-        \\                                report broken packages, if any.
-        \\    bioc-url <version>          Report the URLs for all Bioc repositories.
+        \\    broken <file> [file...]       Using files in PACKAGES format,
+        \\                                  report broken packages, if any.
+        \\    bioc-url <version>            Report the URLs for all Bioc repositories.
+        \\    can-install <name> <file> ... Exit with status 0 if <name> is installable.
         \\
         \\  Options:
+        \\    -q, --quiet                   Suppress stderr messages
         \\
     ,
         .{},
     );
 }
 
-const FLAGS = .{};
+const FLAGS = .{
+    .{ "quiet", false },
+};
 
 const Program = struct {
     alloc: Allocator,
@@ -51,6 +55,7 @@ const Program = struct {
     options: Cmdline,
     repo: Repository,
     index: ?Repository.Index = null,
+    quiet: bool = false,
 
     pub fn init(alloc: Allocator, options: Cmdline) !Self {
         const stdout = std.io.getStdOut();
@@ -80,6 +85,9 @@ const Program = struct {
             else => {},
         }
 
+        if (self.options.present("quiet"))
+            self.quiet = true;
+
         return self;
     }
 
@@ -94,18 +102,22 @@ const Program = struct {
     }
 
     pub fn run(self: *Self) !void {
-        const stderr = self.stderr.writer();
         const words = self.options.positional();
         if (words.len < 1) self.exitWithUsage();
         const command = words[0];
 
         if (mem.eql(u8, "broken", command)) {
-            try self.readRepos();
-            try self.broken();
+            try self.readRepos(1);
+            var it = self.repo.iter();
+            if (try self.broken(&it))
+                std.process.exit(1);
         } else if (mem.eql(u8, "bioc-urls", command)) {
             try self.biocUrls();
+        } else if (mem.eql(u8, "can-install", command)) {
+            try self.readRepos(2);
+            try self.canInstall();
         } else {
-            try stderr.print("Unrecognised command: '{s}'\n", .{command});
+            try self.log("Unrecognised command: '{s}'\n", .{command});
             self.exitWithUsage();
         }
     }
@@ -113,6 +125,37 @@ const Program = struct {
     pub fn exitWithUsage(self: Self) noreturn {
         usage(std.fs.path.basename(self.options.argv0));
         std.process.exit(1);
+    }
+
+    fn canInstall(self: *Self) !void {
+        const words = self.options.positional();
+        if (words.len < 3) {
+            self.exitWithUsage();
+        }
+        const name = words[1];
+
+        const package = self.repo.findPackage(name);
+        if (package) |p| {
+            var iter = struct {
+                package: Repository.Package,
+                done: bool = false,
+                pub fn next(this: *This) ?Repository.Package {
+                    if (this.done) return null;
+                    this.done = true;
+                    return this.package;
+                }
+                const This = @This();
+            }{ .package = p };
+
+            const any_broken = try self.broken(&iter);
+            if (any_broken) {
+                try self.log("Package cannot be installed: {s}\n", .{name});
+                std.process.exit(1);
+            }
+        } else {
+            try self.log("Cannot find package: {s}\n", .{name});
+            std.process.exit(1);
+        }
     }
 
     fn biocUrls(self: *Self) !void {
@@ -131,22 +174,21 @@ const Program = struct {
         try stdout.print(bioc_repos.workflows ++ "\n", .{version_number});
     }
 
-    fn readRepos(self: *Self) !void {
+    fn readRepos(self: *Self, start: usize) !void {
         const stderr = self.stderr.writer();
-        const stdout = self.stdout.writer();
 
         const words = self.options.positional();
-        if (words.len < 2) {
+        if (words.len < start + 1) {
             try std.fmt.format(self.stderr.writer(), "Missing files: '{s}'\n", .{words[0]});
             self.exitWithUsage();
         }
 
-        for (words[1..]) |path| {
+        for (words[start..]) |path| {
             const source_: ?[]const u8 = try mos.file.readFileMaybeGzip(self.alloc, path);
             defer if (source_) |s| self.alloc.free(s); // free before next iteration
 
             if (source_) |source| {
-                try std.fmt.format(stderr, "Reading file {s}...", .{path});
+                try self.log("Reading file {s}...", .{path});
                 const count = self.repo.read(source) catch |err| switch (err) {
                     error.InvalidState => |e| {
                         try stderr.print("INTERNAL ERROR: Invalid state. (Sorry.)\n", .{});
@@ -166,17 +208,17 @@ const Program = struct {
                         return e;
                     },
                 };
-                try std.fmt.format(stderr, " {} packages read.\n", .{count});
+                try self.log(" {} packages read.\n", .{count});
             }
         }
 
-        try std.fmt.format(stdout, "Creating index... ", .{});
+        try self.log("Creating index... ", .{});
         self.index = try self.repo.createIndex();
-        try std.fmt.format(stdout, "Done.\n", .{});
-        try std.fmt.format(stdout, "Number of packages: {}\n", .{self.repo.packages.len});
+        try self.log("Done.\n", .{});
+        try self.log("Number of packages: {}\n", .{self.repo.packages.len});
     }
 
-    fn broken(self: *Self) !void {
+    fn broken(self: *Self, iterator: anytype) !bool {
         const unsatisfiedDependencies = repository_index.Operations.unsatisfiedDependencies;
 
         const index = b: {
@@ -194,8 +236,7 @@ const Program = struct {
             unsatisfied.deinit();
         }
 
-        var it = self.repo.iter();
-        while (it.next()) |p| {
+        while (iterator.next()) |p| {
             const deps = try unsatisfiedDependencies(self.alloc, index, p.depends);
             const impo = try unsatisfiedDependencies(self.alloc, index, p.imports);
             const link = try unsatisfiedDependencies(self.alloc, index, p.linkingTo);
@@ -211,15 +252,24 @@ const Program = struct {
         }
 
         var un_it = unsatisfied.iterator();
+        var any_broken = false;
         while (un_it.next()) |u| {
             for (u.value_ptr.items) |nav| {
-                std.debug.print("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
+                any_broken = true;
+                try self.log("Package '{s}' dependency '{s}' version '{s}' not satisfied.\n", .{
                     u.key_ptr.*,
                     nav.name,
                     nav.version_constraint,
                 });
             }
         }
+        return any_broken;
+    }
+
+    fn log(self: Self, comptime format: []const u8, args: anytype) !void {
+        if (self.quiet) return;
+        const stderr = self.stderr.writer();
+        try stderr.print(format, args);
     }
 
     const Self = @This();

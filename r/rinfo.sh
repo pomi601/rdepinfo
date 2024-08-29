@@ -11,7 +11,8 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 
-ALL_REPOS=""
+OPT_ALL_REPOS=""
+OPT_TIME="FALSE"
 
 usage()
 {
@@ -28,6 +29,7 @@ usage()
     echo "Options:"
     echo
     echo "  --all-repos        Load all known package repositories. Slow."
+    echo "  --time             Including timing information to stderr."
 }
 
 repos()
@@ -41,7 +43,7 @@ known_repos()
 }
 
 depends_flat() {
-    if [[ -n "$ALL_REPOS" ]]; then
+    if [[ -n "$OPT_ALL_REPOS" ]]; then
         "$RSCRIPT" -e "$MY_R load_all_repos(); depend_list('$1', recursive = FALSE)"
     else
         "$RSCRIPT" -e "$MY_R depend_list('$1', recursive = FALSE)"
@@ -49,7 +51,7 @@ depends_flat() {
 }
 
 depends_full() {
-    if [[ -n "$ALL_REPOS" ]]; then
+    if [[ -n "$OPT_ALL_REPOS" ]]; then
         "$RSCRIPT" -e "$MY_R load_all_repos(); depend_list('$1', recursive = TRUE)"
     else
         "$RSCRIPT" -e "$MY_R depend_list('$1', recursive = TRUE)"
@@ -57,10 +59,10 @@ depends_full() {
 }
 
 dump_packages() {
-    if [[ -n "$ALL_REPOS" ]]; then
-        "$RSCRIPT" -e "$MY_R load_all_repos(); dump_available_packages()"
+    if [[ -n "$OPT_ALL_REPOS" ]]; then
+        "$RSCRIPT" -e "$MY_R load_all_repos(); dump_available_packages(timing = $OPT_TIME)"
     else
-        "$RSCRIPT" -e "$MY_R dump_available_packages()"
+        "$RSCRIPT" -e "$MY_R dump_available_packages(timing = $OPT_TIME)"
     fi
 }
 
@@ -72,7 +74,7 @@ parse()
     while [[ $# -gt 0 ]]; do
         case $1 in
             --all-repos )
-                ALL_REPOS="yes"
+                OPT_ALL_REPOS="yes"
                 ;;
 
             -h | --help )
@@ -82,6 +84,10 @@ parse()
 
             -v | --verbose )
                 OPT_VERBOSE="yes"
+                ;;
+
+            --time )
+                OPT_TIME="TRUE"
                 ;;
 
             -* )
