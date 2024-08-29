@@ -1,4 +1,11 @@
+//!
+//!
+//! rdepinfo broken PACKAGES.gz PACKAGES-bioc-3.19.gz PACKAGES-bioc-data.gz PACKAGES-bioc-data-experiment.gz
+
+// Bioconductor repositories:
+
 const std = @import("std");
+const mem = std.mem;
 const Allocator = std.mem.Allocator;
 
 const mos = @import("mos");
@@ -10,19 +17,31 @@ const repository = @import("lib/repository.zig");
 const repository_index = @import("lib/repository_index.zig");
 const Repository = repository.Repository;
 
+const bioc_repos = struct {
+    const main = "https://bioconductor.org/packages/{s}/bioc/src/contrib/PACKAGES.gz";
+    const annotation = "https://bioconductor.org/packages/release/data/annotation/src/contrib/PACKAGES.gz";
+    const experiment = "https://bioconductor.org/packages/release/data/experiment/src/contrib/PACKAGES.gz";
+    const workflows = "https://bioconductor.org/packages/{s}/workflows/src/contrib/PACKAGES.gz";
+};
+
 fn usage(progname: []const u8) void {
+    _ = progname;
     std.debug.print(
-        \\Usage: {s} <command> [options]
+        \\Usage: rdepinfo broken <file> [files...]
+        \\Usage: rdepinfo bioc-url <version>
         \\  Commands:
-        \\    broken              Report broken dependencies
+        \\    broken <file> [file...]     Using files in PACKAGES format,
+        \\                                report broken packages, if any.
+        \\    bioc-url <version>          Report the URLs for all Bioc repositories.
         \\
         \\  Options:
-        \\    --repo <file>       A repository PACKAGES.gz file. (May be repeated.)
         \\
     ,
-        .{progname},
+        .{},
     );
 }
+
+const FLAGS = .{};
 
 const Program = struct {
     alloc: Allocator,
@@ -75,16 +94,19 @@ const Program = struct {
     }
 
     pub fn run(self: *Self) !void {
+        const stderr = self.stderr.writer();
         const words = self.options.positional().items;
         if (words.len < 1) self.exitWithUsage();
 
         const command = words[0];
 
-        if (mos.streql("broken", command)) {
+        if (mem.eql(u8, "broken", command)) {
             try self.readRepos();
             try self.broken();
+        } else if (mem.eql(u8, "bioc-urls", command)) {
+            try self.biocUrls();
         } else {
-            try std.fmt.format(self.stderr.writer(), "Unrecognised command: '{s}'\n", .{command});
+            try stderr.print("Unrecognised command: '{s}'\n", .{command});
             self.exitWithUsage();
         }
     }
@@ -94,27 +116,47 @@ const Program = struct {
         std.process.exit(1);
     }
 
+    fn biocUrls(self: *Self) !void {
+        const stderr = self.stderr.writer();
+        const stdout = self.stdout.writer();
+        const words = self.options.positional().items;
+        if (words.len < 2) {
+            try stderr.print("Missing version number: '{s}'\n", .{words[0]});
+            self.exitWithUsage();
+        }
+        const version_number = words[1];
+
+        try stdout.print(bioc_repos.main ++ "\n", .{version_number});
+        try stdout.print(bioc_repos.annotation ++ "\n", .{});
+        try stdout.print(bioc_repos.experiment ++ "\n", .{});
+        try stdout.print(bioc_repos.workflows ++ "\n", .{version_number});
+    }
+
     fn readRepos(self: *Self) !void {
         const stderr = self.stderr.writer();
         const stdout = self.stdout.writer();
 
-        if (self.options.getMany("repo")) |repos| {
-            for (repos) |path| {
-                const source_: ?[]const u8 = try mos.file.readFileMaybeGzip(self.alloc, path);
-                defer if (source_) |s| self.alloc.free(s); // free before next iteration
-
-                if (source_) |source| {
-                    try std.fmt.format(stderr, "Reading file {s}...", .{path});
-                    const count = try self.repo.read(source);
-                    try std.fmt.format(stderr, " {} packages read.\n", .{count});
-                }
-            }
-
-            try std.fmt.format(stdout, "Creating index... ", .{});
-            self.index = try self.repo.createIndex();
-            try std.fmt.format(stdout, "Done.\n", .{});
-            try std.fmt.format(stdout, "Number of packages: {}\n", .{self.repo.packages.len});
+        const words = self.options.positional().items;
+        if (words.len < 2) {
+            try std.fmt.format(self.stderr.writer(), "Missing files: '{s}'\n", .{words[0]});
+            self.exitWithUsage();
         }
+
+        for (words[1..]) |path| {
+            const source_: ?[]const u8 = try mos.file.readFileMaybeGzip(self.alloc, path);
+            defer if (source_) |s| self.alloc.free(s); // free before next iteration
+
+            if (source_) |source| {
+                try std.fmt.format(stderr, "Reading file {s}...", .{path});
+                const count = try self.repo.read(source);
+                try std.fmt.format(stderr, " {} packages read.\n", .{count});
+            }
+        }
+
+        try std.fmt.format(stdout, "Creating index... ", .{});
+        self.index = try self.repo.createIndex();
+        try std.fmt.format(stdout, "Done.\n", .{});
+        try std.fmt.format(stdout, "Number of packages: {}\n", .{self.repo.packages.len});
     }
 
     fn broken(self: *Self) !void {
@@ -176,16 +218,9 @@ pub fn main() !void {
 
     var program = try Program.init(
         alloc,
-        try Cmdline.init(alloc, .{
-            .{"verbose"},
-            .{ "repo", "repo" },
-        }),
+        try Cmdline.init(alloc, FLAGS),
     );
     defer program.deinit();
 
     try program.run();
-
-    // const stdout = std.io.getStdOut();
-    // try stdout.writeAll(bytes);
-
 }
