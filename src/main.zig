@@ -30,10 +30,11 @@ fn usage(progname: []const u8) void {
         \\Usage: rdepinfo broken <file> [files...]
         \\Usage: rdepinfo bioc-url <version>
         \\  Commands:
+        \\    bioc-url <version>            Report the URLs for all Bioc repositories.
         \\    broken <file> [file...]       Using files in PACKAGES format,
         \\                                  report broken packages, if any.
-        \\    bioc-url <version>            Report the URLs for all Bioc repositories.
         \\    can-install <name> <file> ... Exit with status 0 if <name> is installable.
+        \\    depends <name> <file> ...     Report packages <name> depends on.
         \\
         \\  Options:
         \\    -q, --quiet                   Suppress stderr messages
@@ -116,6 +117,9 @@ const Program = struct {
         } else if (mem.eql(u8, "can-install", command)) {
             try self.readRepos(2);
             try self.canInstall();
+        } else if (mem.eql(u8, "depends", command)) {
+            try self.readRepos(2);
+            try self.depends();
         } else {
             try self.log("Unrecognised command: '{s}'\n", .{command});
             self.exitWithUsage();
@@ -156,6 +160,33 @@ const Program = struct {
             try self.log("Cannot find package: {s}\n", .{name});
             std.process.exit(1);
         }
+        try self.log("OK", .{});
+    }
+
+    fn depends(self: *Self) !void {
+        const stdout = self.stdout.writer();
+
+        const words = self.options.positional();
+        if (words.len < 2) {
+            self.exitWithUsage();
+        }
+        const name = words[1];
+
+        const package = self.repo.findPackage(name);
+        if (package) |p| {
+            for (p.depends) |x| {
+                try stdout.print("{s}\n", .{x.name});
+            }
+            for (p.imports) |x| {
+                try stdout.print("{s}\n", .{x.name});
+            }
+            for (p.linkingTo) |x| {
+                try stdout.print("{s}\n", .{x.name});
+            }
+        } else {
+            try self.log("Cannot find package: {s}\n", .{name});
+            std.process.exit(1);
+        }
     }
 
     fn biocUrls(self: *Self) !void {
@@ -184,7 +215,11 @@ const Program = struct {
         }
 
         for (words[start..]) |path| {
-            const source_: ?[]const u8 = try mos.file.readFileMaybeGzip(self.alloc, path);
+            const source_: ?[]const u8 = mos.file.readFileMaybeGzip(self.alloc, path) catch {
+                try self.log("Could not read file: {s}\n", .{path});
+                std.process.exit(1);
+            };
+
             defer if (source_) |s| self.alloc.free(s); // free before next iteration
 
             if (source_) |source| {
