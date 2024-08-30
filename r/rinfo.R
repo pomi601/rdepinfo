@@ -2,7 +2,7 @@ repos <- function() {
   cat(unlist(options("repos")), "\n")
 }
 
-known_repos <- function () {
+known_repos <- function() {
   repos <- unlist(c(
     utils:::findCRANmirror(type = "src"),
     utils:::.get_repositories()$URL
@@ -21,15 +21,15 @@ load_all_repos <- function() {
   ## TODO: should there be a smarter way to load all known
   ## repositories?
   setRepositories(ind = 1:nrow(utils:::.get_repositories()))
-
 }
 
 dump_available_packages <- function(timing = FALSE) {
   fields <- c("Package", "Version", "Depends", "Imports", "LinkingTo")
 
   ap_time <- system.time(ap <- available.packages()[, fields])["elapsed"]
-  if (timing)
+  if (timing) {
     cat("available.packages: ", ap_time, "\n", sep = "", file = stderr())
+  }
 
   loop_time <- system.time(
     for (i in seq_len(nrow(ap))) {
@@ -61,6 +61,7 @@ dump_available_packages <- function(timing = FALSE) {
     }
   )["elapsed"]
 
-  if (timing)
+  if (timing) {
     cat("output: ", loop_time, "\n", sep = "", file = stderr())
+  }
 }
