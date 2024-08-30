@@ -7,13 +7,13 @@
             .url = "https://codeberg.org/mocompute/cmdline/archive/main.tar.gz",
             .hash = "12206f54440998e1365a1e096130103acf0f905beccec5672c99be576255e49165f3",
         },
-        .string_storage = .{
-            .url = "https://codeberg.org/mocompute/string_storage/archive/main.tar.gz",
-            .hash = "1220cbeda750c5b69c71fe0e5d159f6a4f2f6233be4dfe82dace904cde951f098dd9",
-        },
         .mos = .{
             .url = "https://codeberg.org/mocompute/mos/archive/main.tar.gz",
             .hash = "1220b6da547644c2792c9490e3a813978c90b6aae8519b056a13ba40af1968cff8e7",
+        },
+        .stable_list = .{
+            .url = "https://codeberg.org/mocompute/stable_list/archive/main.tar.gz",
+            .hash = "1220a1f8ce0b2968b1cd5d9777afb8661c75003888fc734fd18c4de2b0079c6b42f4",
         },
     },
 

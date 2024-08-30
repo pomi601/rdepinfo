@@ -46,11 +46,11 @@ pub fn build(b: *std.Build) void {
     }).module("cmdline");
     exe.root_module.addImport("cmdline", cmdline);
 
-    const string_storage = b.dependency("string_storage", .{
+    const stable_list = b.dependency("stable_list", .{
         .target = target,
         .optimize = dep_optimize,
-    }).module("string_storage");
-    exe.root_module.addImport("string_storage", string_storage);
+    }).module("stable_list");
+    exe.root_module.addImport("stable_list", stable_list);
 
     b.installArtifact(exe);
     // -- end executable -----------------------------------------------------
@@ -73,7 +73,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lib_unit_tests.root_module.addImport("string_storage", string_storage);
+    lib_unit_tests.root_module.addImport("stable_list", stable_list);
     lib_unit_tests.root_module.addImport("mos", mos);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
@@ -83,7 +83,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    exe_unit_tests.root_module.addImport("string_storage", string_storage);
+    exe_unit_tests.root_module.addImport("stable_list", stable_list);
     exe_unit_tests.root_module.addImport("mos", mos);
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -112,7 +112,7 @@ pub fn build(b: *std.Build) void {
     })).step);
 
     dep_test_step.dependOn(&b.addRunArtifact(b.addTest(.{
-        .root_source_file = string_storage.root_source_file.?,
+        .root_source_file = stable_list.root_source_file.?,
         .target = target,
         .optimize = dep_optimize,
     })).step);

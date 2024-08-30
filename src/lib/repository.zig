@@ -4,8 +4,8 @@ const mos = @import("mos");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const string_storage = @import("string_storage");
-const StringStorage = string_storage.IndexedStringStorage;
+const stable_list = @import("stable_list");
+const StringStorage = stable_list.IndexedStringStorage;
 
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
