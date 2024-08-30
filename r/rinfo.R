@@ -17,6 +17,36 @@ depend_list <- function(pkg, recursive = FALSE) {
   cat(unlist(res), sep = "\n")
 }
 
+## Print dependency packages of pkg grouped with their dependencies
+depend_grouped <- function(pkg) {
+  ap <- available.packages()
+  res <- unlist(utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE))
+
+  for (pkg in res) {
+    depends <- unlist(utils:::.make_dependency_list(pkg, ap, recursive = FALSE))
+    cat(pkg, ":", depends, "\n", sep = " ")
+  }
+}
+
+## Print dependency packages of pkg in build order
+depend_ordered <- function(pkg) {
+  ap <- available.packages()
+  dl <- utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE)
+  tdl <- utils:::.make_dependency_list(unlist(dl), ap, recursive = TRUE)
+  res <- utils:::.find_install_order(unique(unlist(dl)), tdl)
+  cat(res, sep = "\n")
+}
+
+## Print package source downloads for pkg and each dependency
+depend_urls <- function(pkg) {
+  ap <- available.packages()
+  dl <- unlist(utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE))
+  cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
+  for (pkg in dl) {
+    cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
+  }
+}
+
 load_all_repos <- function() {
   ## TODO: should there be a smarter way to load all known
   ## repositories?

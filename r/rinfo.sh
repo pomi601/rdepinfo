@@ -19,16 +19,19 @@ usage()
     echo
     echo "Commands:"
     echo
-    echo "  depends <pkg>      Print immediate dependencies of pkg, one per line."
-    echo "  depends-full <pkg> Print recursive dependencies of pkg, one per line."
-    echo "  dump-packages      Print essential package information in DCF for all"
-    echo "                     packages. Slow."
-    echo "  repos              Print configured R repositories, one per line."
+    echo "  depends <pkg>         Print immediate dependencies of pkg, one per line."
+    echo "  depends-full <pkg>    Print recursive dependencies of pkg, one per line."
+    echo "  depends-grouped <pkg> Print dependencies of pkg each with its dependencies."
+    echo "  depends-ordered <pkg> Print dependencies of pkg in build order."
+    echo "  depends-urls <pkg>    Print source download URLs for pkg and its dependencies."
+    echo "  dump-packages         Print essential package information in DCF for all"
+    echo "                        packages. Slow."
+    echo "  repos                 Print configured R repositories, one per line."
     echo
     echo "Options:"
     echo
-    echo "  --all-repos        Load all known package repositories. Slow."
-    echo "  --time             Including timing information to stderr."
+    echo "  --all-repos           Load all known package repositories. Slow."
+    echo "  --time                Including timing information to stderr."
 }
 
 repos()
@@ -54,6 +57,30 @@ depends_full() {
         "$RSCRIPT" -e "$MY_R load_all_repos(); depend_list('$1', recursive = TRUE)"
     else
         "$RSCRIPT" -e "$MY_R depend_list('$1', recursive = TRUE)"
+    fi
+}
+
+depends_grouped() {
+    if [[ -n "$OPT_ALL_REPOS" ]]; then
+        "$RSCRIPT" -e "$MY_R load_all_repos(); depend_grouped('$1')"
+    else
+        "$RSCRIPT" -e "$MY_R depend_grouped('$1')"
+    fi
+}
+
+depends_ordered() {
+    if [[ -n "$OPT_ALL_REPOS" ]]; then
+        "$RSCRIPT" -e "$MY_R load_all_repos(); depend_ordered('$1')"
+    else
+        "$RSCRIPT" -e "$MY_R depend_ordered('$1')"
+    fi
+}
+
+depends_urls() {
+    if [[ -n "$OPT_ALL_REPOS" ]]; then
+        "$RSCRIPT" -e "$MY_R load_all_repos(); depend_urls('$1')"
+    else
+        "$RSCRIPT" -e "$MY_R depend_urls('$1')"
     fi
 }
 
@@ -116,6 +143,21 @@ while [[ $# -gt 0 ]]; do
 
         "depends-full" )
             depends_full "$2"
+            exit $?
+            ;;
+
+        "depends-grouped" )
+            depends_grouped "$2"
+            exit $?
+            ;;
+
+        "depends-ordered" )
+            depends_ordered "$2"
+            exit $?
+            ;;
+
+        "depends-urls" )
+            depends_urls "$2"
             exit $?
             ;;
 
