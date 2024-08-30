@@ -95,4 +95,33 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
     // -- end test -----------------------------------------------------------
+
+    // -- begin dependency tests ---------------------------------------------
+
+    const dep_test_step = b.step(
+        "dep-test",
+        "Run all dependency unit tests",
+    );
+
+    // NOTE: these only find tests which have the same
+    // root_source_file as the module itself.
+    dep_test_step.dependOn(&b.addRunArtifact(b.addTest(.{
+        .root_source_file = cmdline.root_source_file.?,
+        .target = target,
+        .optimize = dep_optimize,
+    })).step);
+
+    dep_test_step.dependOn(&b.addRunArtifact(b.addTest(.{
+        .root_source_file = string_storage.root_source_file.?,
+        .target = target,
+        .optimize = dep_optimize,
+    })).step);
+
+    dep_test_step.dependOn(&b.addRunArtifact(b.addTest(.{
+        .root_source_file = mos.root_source_file.?,
+        .target = target,
+        .optimize = dep_optimize,
+    })).step);
+
+    // -- end dependency tests ---------------------------------------------
 }
