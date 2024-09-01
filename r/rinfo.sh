@@ -40,6 +40,28 @@ usage()
     echo "  $0 depends-grouped babel --all-repos"
 }
 
+positional_args_to_list()
+{
+    # ignore options and collect them all into a single R expression
+    result=""
+    for arg in "$@"; do
+        case $arg in
+            -* )
+                shift
+                ;;
+            * )
+                if [ -z "$result" ]; then
+                    result="c('$arg'"
+                else
+                    result="$result,'$arg'"
+                fi
+                ;;
+        esac
+    done
+    result="${result})"
+    echo "$result"
+}
+
 repos()
 {
     if [[ -n "$OPT_ALL_REPOS" ]]; then
@@ -70,10 +92,13 @@ depends_full() {
 }
 
 depends_grouped() {
+    # TODO: this approach of passing multiple packages at once does
+    # not handle duplicates well
+    pkgs=$(positional_args_to_list "${@}")
     if [[ -n "$OPT_ALL_REPOS" ]]; then
-        "$RSCRIPT" -e "$MY_R load_all_repos(); depend_grouped('$1')"
+        "$RSCRIPT" -e "$MY_R load_all_repos(); depend_grouped($pkgs)"
     else
-        "$RSCRIPT" -e "$MY_R depend_grouped('$1')"
+        "$RSCRIPT" -e "$MY_R depend_grouped($pkgs)"
     fi
 }
 
@@ -156,7 +181,7 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         "depends-grouped" )
-            depends_grouped "$2"
+            depends_grouped "${@:2}"
             exit $?
             ;;
 

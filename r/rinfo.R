@@ -1,3 +1,13 @@
+check_pkgs <- function(pkgs, names) {
+  if (!is.vector(pkgs)) pkgs <- c(pkgs)
+  for (pkg in pkgs) {
+    if (!pkg %in% names) {
+      cat(pkg, " not found.\n", sep = "", file = stderr())
+      quit(status = 1)
+    }
+  }
+}
+
 repos <- function() {
   cat(unlist(options("repos")), "\n")
 }
@@ -17,26 +27,21 @@ depend_list <- function(pkg, recursive = FALSE) {
   cat(unlist(res), sep = "\n")
 }
 
-## Print dependency packages of pkg grouped with their dependencies
-depend_grouped <- function(pkg) {
+## Print dependency packages of pkgs grouped with their dependencies
+depend_grouped <- function(pkgs) {
+  if (!is.vector(pkgs)) pkgs <- c(pkgs)
   ap <- available.packages()
   names <- rownames(ap)
-  if (!pkg %in% names) {
-    cat(pkg, " not found.\n", sep = "", file = stderr())
-    quit(status = 1)
-  }
+  check_pkgs(pkgs, names)
 
-
-  res <- unlist(utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE))
-  cat(pkg, ":", res, "\n", sep = " ")
-
-  for (pkg in res) {
-    if (!pkg %in% names) {
-      cat(pkg, " not found.\n", sep = "", file = stderr())
-      quit(status = 1)
+  for (pkg in pkgs) {
+    res <- unlist(utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE))
+    cat(pkg, ":", res, "\n", sep = " ")
+    for (pkg in res) {
+      check_pkgs(pkg, names)
+      depends <- unlist(utils:::.make_dependency_list(pkg, ap, recursive = FALSE))
+      cat(pkg, ":", depends, "\n", sep = " ")
     }
-    depends <- unlist(utils:::.make_dependency_list(pkg, ap, recursive = FALSE))
-    cat(pkg, ":", depends, "\n", sep = " ")
   }
 }
 
@@ -50,23 +55,18 @@ depend_ordered <- function(pkg) {
 }
 
 ## Print package source downloads for pkg and each dependency
-depend_urls <- function(pkg) {
+depend_urls <- function(pkgs) {
+  if (!is.vector(pkgs)) pkgs <- c(pkgs)
+
   ap <- available.packages()
   names <- rownames(ap)
-  if (!pkg %in% names) {
-    cat(pkg, " not found.\n", sep = "", file = stderr())
-    quit(status = 1)
-  }
-
-  dl <- unlist(utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE))
+  check_pkgs(pkgs, names)
+  dl <- unlist(utils:::.make_dependency_list(pkgs, ap, recursive = TRUE))
 
   cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
 
+  check_pkgs(dl, names)
   for (pkg in dl) {
-    if (! pkg %in% names) {
-      cat(pkg, " not found.\n", sep = "", file = stderr())
-      quit(status = 1)
-    }
     cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
   }
 }
