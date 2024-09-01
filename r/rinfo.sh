@@ -26,16 +26,25 @@ usage()
     echo "  depends-urls <pkg>    Print source download URLs for pkg and its dependencies."
     echo "  dump-packages         Print essential package information in DCF for all"
     echo "                        packages. Slow."
+    echo "  known-repos           Print known R repositories, one per line."
     echo "  repos                 Print configured R repositories, one per line."
     echo
     echo "Options:"
     echo
     echo "  --all-repos           Load all known package repositories. Slow."
     echo "  --time                Including timing information to stderr."
+    echo
+    echo "Examples:"
+    echo
+    echo "  $0 depends-urls babel --all-repos"
+    echo "  $0 depends-grouped babel --all-repos"
 }
 
 repos()
 {
+    if [[ -n "$OPT_ALL_REPOS" ]]; then
+        >&2 echo "WARNING: option --all-repos ignored."
+    fi
     "$RSCRIPT" -e "$MY_R cat(unlist(options('repos')), '\n')"
 }
 

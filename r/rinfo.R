@@ -20,9 +20,21 @@ depend_list <- function(pkg, recursive = FALSE) {
 ## Print dependency packages of pkg grouped with their dependencies
 depend_grouped <- function(pkg) {
   ap <- available.packages()
+  names <- rownames(ap)
+  if (!pkg %in% names) {
+    cat(pkg, " not found.\n", sep = "", file = stderr())
+    quit(status = 1)
+  }
+
+
   res <- unlist(utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE))
+  cat(pkg, ":", res, "\n", sep = " ")
 
   for (pkg in res) {
+    if (!pkg %in% names) {
+      cat(pkg, " not found.\n", sep = "", file = stderr())
+      quit(status = 1)
+    }
     depends <- unlist(utils:::.make_dependency_list(pkg, ap, recursive = FALSE))
     cat(pkg, ":", depends, "\n", sep = " ")
   }
@@ -40,9 +52,21 @@ depend_ordered <- function(pkg) {
 ## Print package source downloads for pkg and each dependency
 depend_urls <- function(pkg) {
   ap <- available.packages()
+  names <- rownames(ap)
+  if (!pkg %in% names) {
+    cat(pkg, " not found.\n", sep = "", file = stderr())
+    quit(status = 1)
+  }
+
   dl <- unlist(utils:::.make_dependency_list(c(pkg), ap, recursive = TRUE))
+
   cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
+
   for (pkg in dl) {
+    if (! pkg %in% names) {
+      cat(pkg, " not found.\n", sep = "", file = stderr())
+      quit(status = 1)
+    }
     cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
   }
 }
