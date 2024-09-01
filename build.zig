@@ -55,6 +55,21 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
     // -- end executable -----------------------------------------------------
 
+    // -- begin check --------------------------------------------------------
+    const exe_check = b.addExecutable(.{
+        .name = "rdepinfo",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe_check.root_module.addImport("mos", mos);
+    exe_check.root_module.addImport("cmdline", cmdline);
+    exe_check.root_module.addImport("stable_list", stable_list);
+
+    const check = b.step("check", "Check if rdepinfo compiles");
+    check.dependOn(&exe_check.step);
+    // -- end check ----------------------------------------------------------
+
     // -- begin run ----------------------------------------------------------
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
