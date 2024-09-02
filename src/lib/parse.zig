@@ -300,7 +300,6 @@ pub const Parser = struct {
                     x.name = try strings.append(x.name);
                 },
                 .name_and_version => |*x| {
-                    x.version_constraint.version.string = try strings.append(x.version_constraint.version.string);
                     x.name = try strings.append(x.name);
                 },
                 else => {},

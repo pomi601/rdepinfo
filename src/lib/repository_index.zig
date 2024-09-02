@@ -1,5 +1,4 @@
 const std = @import("std");
-const mos = @import("mos");
 const Allocator = std.mem.Allocator;
 
 const Repository = @import("repository.zig").Repository;
@@ -116,20 +115,19 @@ pub const Index = struct {
         self.items.deinit();
         self.* = undefined;
     }
-};
 
-pub const Operations = struct {
-    pub fn unsatisfiedDependencies(
+    /// Given a slice of requirements, return a slice of missing dependencies, if any.
+    pub fn unsatisfied(
+        self: Index,
         alloc: Allocator,
-        index: Repository.Index,
-        depends: []NameAndVersionConstraint,
-    ) ![]NameAndVersionConstraint {
+        require: []NameAndVersionConstraint,
+    ) error{OutOfMemory}![]NameAndVersionConstraint {
         var out = std.ArrayList(NameAndVersionConstraint).init(alloc);
 
-        for (depends) |d| top: {
+        for (require) |d| top: {
             if (isBasePackage(d.name)) continue;
             if (isRecommendedPackage(d.name)) continue;
-            if (index.items.get(d.name)) |entry| switch (entry) {
+            if (self.items.get(d.name)) |entry| switch (entry) {
                 .single => |e| {
                     if (d.version_constraint.satisfied(e.version)) break;
                 },
@@ -146,14 +144,14 @@ pub const Operations = struct {
 
     pub fn isBasePackage(name: []const u8) bool {
         inline for (base_packages) |base| {
-            if (mos.streql(base, name)) return true;
+            if (std.mem.eql(u8, base, name)) return true;
         }
         return false;
     }
 
     pub fn isRecommendedPackage(name: []const u8) bool {
         inline for (recommended_packages) |reco| {
-            if (mos.streql(reco, name)) return true;
+            if (std.mem.eql(u8, reco, name)) return true;
         }
         return false;
     }

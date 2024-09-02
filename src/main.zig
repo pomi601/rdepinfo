@@ -254,8 +254,6 @@ const Program = struct {
     }
 
     fn broken(self: *Self, iterator: anytype) !bool {
-        const unsatisfiedDependencies = repository_index.Operations.unsatisfiedDependencies;
-
         const index = b: {
             if (self.index) |x| {
                 break :b x;
@@ -272,9 +270,9 @@ const Program = struct {
         }
 
         while (iterator.next()) |p| {
-            const deps = try unsatisfiedDependencies(self.alloc, index, p.depends);
-            const impo = try unsatisfiedDependencies(self.alloc, index, p.imports);
-            const link = try unsatisfiedDependencies(self.alloc, index, p.linkingTo);
+            const deps = try index.unsatisfied(self.alloc, p.depends);
+            const impo = try index.unsatisfied(self.alloc, p.imports);
+            const link = try index.unsatisfied(self.alloc, p.linkingTo);
             defer self.alloc.free(deps);
             defer self.alloc.free(impo);
             defer self.alloc.free(link);

@@ -26,7 +26,7 @@ pub const Repository = struct {
 
     pub const Package = struct {
         name: []const u8 = "",
-        version: Version = .{ .string = "" },
+        version: Version = .{},
         depends: []NameAndVersionConstraint = &.{},
         suggests: []NameAndVersionConstraint = &.{},
         imports: []NameAndVersionConstraint = &.{},
@@ -286,11 +286,11 @@ test "PACKAGES.gz" {
     // Package: A3
     // Version: 1.0.0
     try testing.expectEqualStrings("A3", repo.packages.items(.name)[0]);
-    try testing.expectEqualStrings("1.0.0", repo.packages.items(.version)[0].string);
+    try testing.expectEqual(1, repo.packages.items(.version)[0].major);
     try testing.expectEqualStrings("AalenJohansen", repo.packages.items(.name)[1]);
-    try testing.expectEqualStrings("1.0", repo.packages.items(.version)[1].string);
+    try testing.expectEqual(1, repo.packages.items(.version)[1].major);
     try testing.expectEqualStrings("AATtools", repo.packages.items(.name)[2]);
-    try testing.expectEqualStrings("0.0.2", repo.packages.items(.version)[2].string);
+    try testing.expectEqual(0, repo.packages.items(.version)[2].major);
 
     const pack = repo.findPackage("A3");
     try testing.expect(pack != null);
@@ -304,15 +304,14 @@ test "PACKAGES.gz" {
     std.debug.print("Index count = {}\n", .{index.items.count()});
 
     try testing.expectEqual(0, index.items.get("A3").?.single.index);
-    try testing.expectEqualStrings("1.0.0", index.items.get("A3").?.single.version.string);
+    try testing.expectEqual(1, index.items.get("A3").?.single.version.major);
     try testing.expectEqual(1, index.items.get("AalenJohansen").?.single.index);
-    try testing.expectEqualStrings("1.0", index.items.get("AalenJohansen").?.single.version.string);
+    try testing.expectEqual(1, index.items.get("AalenJohansen").?.single.version.major);
     try testing.expectEqual(2, index.items.get("AATtools").?.single.index);
-    try testing.expectEqualStrings("0.0.2", index.items.get("AATtools").?.single.version.string);
+    try testing.expectEqual(0, index.items.get("AATtools").?.single.version.major);
 }
 
 test "PACKAGES sanity check" {
-    const Ops = repository_index.Operations;
     const path = "PACKAGES.gz";
     std.fs.cwd().access(path, .{}) catch return;
     const alloc = testing.allocator;
@@ -336,9 +335,9 @@ test "PACKAGES sanity check" {
 
     var it = repo.iter();
     while (it.next()) |p| {
-        const deps = try Ops.unsatisfiedDependencies(alloc, index, p.depends);
-        const impo = try Ops.unsatisfiedDependencies(alloc, index, p.imports);
-        const link = try Ops.unsatisfiedDependencies(alloc, index, p.linkingTo);
+        const deps = try index.unsatisfied(alloc, p.depends);
+        const impo = try index.unsatisfied(alloc, p.imports);
+        const link = try index.unsatisfied(alloc, p.linkingTo);
         defer alloc.free(deps);
         defer alloc.free(impo);
         defer alloc.free(link);

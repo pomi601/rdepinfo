@@ -2,8 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
-pub const Version = struct {
-    string: []const u8,
+pub const Version = extern struct {
     major: u32 = 0,
     minor: u32 = 0,
     patch: u32 = 0,
@@ -22,7 +21,7 @@ pub const Version = struct {
             major = std.fmt.parseInt(u32, in[1..], 10) catch {
                 return error.InvalidFormat;
             };
-            return .{ .string = in, .major = major };
+            return .{ .major = major };
         }
 
         // Format 1.2.3 or 1.2-3 or 1-2-3
@@ -52,7 +51,6 @@ pub const Version = struct {
         }
 
         return .{
-            .string = in,
             .major = major,
             .minor = minor,
             .patch = patch,
@@ -83,7 +81,7 @@ pub const Version = struct {
     }
 };
 
-pub const Constraint = enum {
+pub const Constraint = enum(u8) {
     lt,
     lte,
     eq,
@@ -103,9 +101,9 @@ pub const Constraint = enum {
     }
 };
 
-pub const VersionConstraint = struct {
+pub const VersionConstraint = extern struct {
     constraint: Constraint = .gte,
-    version: Version = .{ .string = "0.0.0", .major = 0, .minor = 0, .patch = 0 },
+    version: Version = .{ .major = 0, .minor = 0, .patch = 0 },
 
     pub fn init(constraint: Constraint, version: Version) VersionConstraint {
         return .{ .constraint = constraint, .version = version };
