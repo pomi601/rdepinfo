@@ -8,6 +8,27 @@ pub const CNameAndVersion = extern struct {
     name_ptr: [*]const u8 = "",
     name_len: usize = 0,
     version: version.VersionConstraint = .{},
+
+    pub fn format(
+        self: CNameAndVersion,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print(
+            "{s} {}",
+            .{ self.name_ptr[0..self.name_len], self.version },
+        );
+    }
+
+    export fn debug_print_name_and_version(self: *const CNameAndVersion) void {
+        const stderr = std.io.getStdErr();
+        stderr.writer().print("{}", .{self}) catch {
+            return;
+        };
+    }
 };
 
 pub const NameAndVersionBuffer = extern struct {
@@ -61,6 +82,7 @@ pub const NameAndVersionBuffer = extern struct {
         for (buf, in) |*out, i| {
             out.name_ptr = i.name.ptr;
             out.name_len = i.name.len;
+            out.version = i.version_constraint;
         }
 
         res.* = .{ .ptr = buf.ptr, .len = buf.len };
@@ -71,11 +93,11 @@ pub const NameAndVersionBuffer = extern struct {
 /// Returns an opaque pointer, or null in case of failure. Caller must
 /// call deinit on the returned pointer.
 export fn repo_init() ?*anyopaque {
-    const repo = Repository.init(std.heap.c_allocator) catch {
+    const alloc = std.heap.c_allocator;
+    const repo = Repository.init(alloc) catch {
         return null;
     };
-
-    const out: *Repository = std.heap.c_allocator.create(Repository) catch {
+    const out: *Repository = alloc.create(Repository) catch {
         return null;
     };
 
@@ -96,20 +118,27 @@ export fn repo_deinit(repo_: ?*anyopaque) void {
 export fn repo_read(repo_: *anyopaque, buf: [*]u8, sz: usize) usize {
     const repo: *Repository = @ptrCast(@alignCast(repo_));
     const slice = buf[0..sz];
-    return repo.read(slice) catch {
+    const res = repo.read(slice) catch {
+        if (repo.parse_error) |err| {
+            std.debug.print("Parser error: {s}: {}\n", .{ err.message, err.token });
+        }
         return 0;
     };
+
+    std.debug.print("repo_read: added repo of {} bytes\n", .{sz});
+    return res;
 }
 
 /// Returns an opaque pointer, or null in case of failure. Caller must
 /// call deinit on the returned pointer.
 export fn repo_index_init(repo_: *anyopaque) ?*anyopaque {
+    const alloc = std.heap.c_allocator;
     const repo: *Repository = @ptrCast(@alignCast(repo_));
     const index = Repository.Index.init(repo.*) catch {
         return null;
     };
 
-    const out: *Repository.Index = std.heap.c_allocator.create(Repository.Index) catch {
+    const out: *Repository.Index = alloc.create(Repository.Index) catch {
         return null;
     };
 
@@ -126,21 +155,24 @@ export fn repo_index_deinit(index_: ?*anyopaque) void {
     }
 }
 
-/// Given a NameAndVersionBuffer of package constraints, return a
-/// newly allocated buffer with any packages whose constraints cannot
-/// be satisfied. The caller must call
-/// repo_name_version_buffer_destroy on the returned buffer.
-export fn repo_index_unsatisfied(index_: *anyopaque, require_: *NameAndVersionBuffer) ?*NameAndVersionBuffer {
+/// Given a package name in a repo, return a newly allocated buffer
+/// with any packages whose constraints cannot be satisfied. The
+/// caller must call repo_name_version_buffer_destroy on the returned
+/// buffer.
+export fn repo_index_unsatisfied(
+    index_: *anyopaque,
+    repo_: *anyopaque,
+    root_ptr: [*]const u8,
+    root_len: usize,
+) ?*NameAndVersionBuffer {
     const alloc = std.heap.c_allocator;
     const index: *Repository.Index = @ptrCast(@alignCast(index_));
+    const repo: *Repository = @ptrCast(@alignCast(repo_));
 
-    const require = require_.toZig(alloc) catch {
+    const res = index.unmetDependencies(alloc, repo.*, root_ptr[0..root_len]) catch {
         return null;
     };
 
-    const res = index.unsatisfied(alloc, require) catch {
-        return null;
-    };
     return NameAndVersionBuffer.toC(alloc, res) catch {
         return null;
     };

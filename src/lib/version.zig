@@ -70,7 +70,12 @@ pub const Version = extern struct {
         return .eq;
     }
 
-    pub fn format(self: Version, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(
+        self: Version,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
         _ = fmt;
         _ = options;
         if (self.rev > 0) {
@@ -88,7 +93,12 @@ pub const Constraint = enum(u8) {
     gte,
     gt,
 
-    pub fn format(self: Constraint, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(
+        self: Constraint,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
         _ = fmt;
         _ = options;
         switch (self) {
@@ -103,7 +113,7 @@ pub const Constraint = enum(u8) {
 
 pub const VersionConstraint = extern struct {
     constraint: Constraint = .gte,
-    version: Version = .{ .major = 0, .minor = 0, .patch = 0 },
+    version: Version = .{ .major = 0, .minor = 0, .patch = 0, .rev = 0 },
 
     pub fn init(constraint: Constraint, version: Version) VersionConstraint {
         return .{ .constraint = constraint, .version = version };
@@ -125,7 +135,12 @@ pub const VersionConstraint = extern struct {
         }
     }
 
-    pub fn format(self: VersionConstraint, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(
+        self: VersionConstraint,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
         _ = fmt;
         _ = options;
         try writer.print("({} {?})", .{ self.constraint, self.version });

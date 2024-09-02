@@ -116,7 +116,7 @@ pub const Index = struct {
         self.* = undefined;
     }
 
-    /// Given a slice of requirements, return a slice of missing dependencies, if any.
+    /// Given a slice of required packages, return a slice of missing dependencies, if any.
     pub fn unsatisfied(
         self: Index,
         alloc: Allocator,
@@ -154,5 +154,37 @@ pub const Index = struct {
             if (std.mem.eql(u8, reco, name)) return true;
         }
         return false;
+    }
+
+    //
+
+    /// Return an owned slice of package names and versions thate
+    /// cannot be satisfied in the given repository, starting with the
+    /// given root package. Caller must free the slice with the same
+    /// allocator.
+    pub fn unmetDependencies(
+        self: Index,
+        alloc: Allocator,
+        repo: Repository,
+        root: []const u8,
+    ) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
+        if (repo.findPackage(root)) |p| {
+            var broken = std.ArrayList(NameAndVersionConstraint).init(alloc);
+            defer broken.deinit();
+
+            const deps = try self.unsatisfied(alloc, p.depends);
+            const impo = try self.unsatisfied(alloc, p.imports);
+            const link = try self.unsatisfied(alloc, p.linkingTo);
+            defer alloc.free(deps);
+            defer alloc.free(impo);
+            defer alloc.free(link);
+
+            try broken.appendSlice(deps);
+            try broken.appendSlice(impo);
+            try broken.appendSlice(link);
+
+            return broken.toOwnedSlice();
+        }
+        return error.NotFound;
     }
 };

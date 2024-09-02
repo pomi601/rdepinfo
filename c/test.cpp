@@ -1,72 +1,65 @@
 #include <fstream>
 #include <ios>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "rdepinfo.h"
 
-void print(CNameAndVersion nv) {
-  std::cerr << "(name: " << std::string{nv.name_ptr, nv.name_len}
-            << " constraint: " << static_cast<int>(nv.version.constraint)
-            << " version: " << nv.version.version.major << "."
-            << nv.version.version.minor << "." << nv.version.version.patch
-            << "." << nv.version.version.rev << ")" << "\n";
-}
+int main(int argc, char *argv[]) {
 
-int main(void) {
+  std::vector<std::string> args{argv, argv + argc};
+
   auto *repo = repo_init();
-  std::cerr << "repo: " << std::hex << repo << "\n";
 
   {
-    std::ifstream file("PACKAGES.gz", std::ios::binary);
-    if (!file) {
+    std::ifstream ifs("PACKAGES", std::ios::binary);
+    if (!ifs) {
       std::cerr << "Could not open file.\n";
       return 1;
     }
 
-    std::streamsize sz = file.tellg();
-    std::vector<char> buffer(sz);
-    if (file.read(buffer.data(), sz)) {
-      repo_read(repo, buffer.data(), sz);
-      std::cerr << "Successfully read file.\n";
-    } else {
-      std::cerr << "Error reading file.\n";
-      return 1;
-    }
+    std::stringstream ss;
+    ss << ifs.rdbuf();
+    std::string buffer{ss.str()};
+
+    // read repo file
+    if (repo_read(repo, buffer.data(), buffer.size()) == 0)
+      std::cerr << "Failed to read repo.\n";
   }
 
+  // make index
   auto *index = repo_index_init(repo);
 
-  std::string package = "A3";
+  for (int i = 1; i < args.size(); ++i) {
+    auto package = args.at(i);
 
-  auto *buf_in = repo_name_version_buffer_create(1);
-  if (buf_in == nullptr) {
-    std::cerr << "Could not create name_version_buffer.\n";
-    return 1;
-  }
-  buf_in->ptr[0].name_ptr = package.c_str();
-  buf_in->ptr[0].name_len = package.length();
-  buf_in->ptr[0].version.constraint = gte;
+    std::cerr << "Checking package " << package << "\n";
 
-  std::cerr << "buf_in 0: ";
-  print(buf_in->ptr[0]);
+    auto *buf_out =
+        repo_index_unsatisfied(index, repo, package.c_str(), package.length());
 
-  auto *buf_out = repo_index_unsatisfied(index, buf_in);
-  if (buf_out == nullptr) {
-    std::cerr << "repo_index_unsatisfied failed.\n";
-    return 1;
-  }
+    if (buf_out == nullptr) {
+      std::cerr << "    Package not found: " << package << "\n";
+      continue;
+    }
 
-  std::cerr << "buf_out 0: ";
-  print(buf_out->ptr[0]);
+    // unmet dependencies found
+    if (buf_out->len > 0) {
+      std::cerr << package << "\n";
+      for (int i = 0; i < buf_out->len; ++i) {
+        std::cerr << "  ";
+        debug_print_name_and_version(&buf_out->ptr[i]);
+        std::cerr << "\n";
+      }
+    }
 
-  std::cerr << "Got " << buf_out->len << " broken package(s).\n";
-  for (int i = 0; i < buf_out->len; ++i) {
-    std::string name{buf_out->ptr[i].name_ptr, buf_out->ptr[i].name_len};
-    std::cerr << "  " << name << "\n";
+    // free buffer returned by repo_index_unsatisfied
+    repo_name_version_buffer_destroy(buf_out);
   }
 
+  // free buffers
   repo_index_deinit(index);
   repo_deinit(repo);
   return 0;
