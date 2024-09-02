@@ -125,7 +125,6 @@ export fn repo_read(repo_: *anyopaque, buf: [*]u8, sz: usize) usize {
         return 0;
     };
 
-    std.debug.print("repo_read: added repo of {} bytes\n", .{sz});
     return res;
 }
 
