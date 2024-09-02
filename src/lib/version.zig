@@ -4,20 +4,22 @@ const assert = std.debug.assert;
 
 pub const Version = struct {
     string: []const u8,
-    major: usize = 0,
-    minor: usize = 0,
-    patch: usize = 0,
+    major: u32 = 0,
+    minor: u32 = 0,
+    patch: u32 = 0,
+    rev: u32 = 0,
 
     pub fn init(string: []const u8) error{InvalidFormat}!Version {
-        var major: usize = 0;
-        var minor: usize = 0;
-        var patch: usize = 0;
+        var major: u32 = 0;
+        var minor: u32 = 0;
+        var patch: u32 = 0;
+        var rev: u32 = 0;
 
         const in = std.mem.trim(u8, string, &std.ascii.whitespace);
 
         // Format: r12345 (svn version)
         if (std.mem.startsWith(u8, in, "r")) {
-            major = std.fmt.parseInt(usize, in[1..], 10) catch {
+            major = std.fmt.parseInt(u32, in[1..], 10) catch {
                 return error.InvalidFormat;
             };
             return .{ .string = in, .major = major };
@@ -26,30 +28,35 @@ pub const Version = struct {
         // Format 1.2.3 or 1.2-3 or 1-2-3
         var it = std.mem.splitAny(u8, in, ".-");
         if (it.next()) |maj| {
-            major = std.fmt.parseInt(usize, maj, 10) catch {
+            major = std.fmt.parseInt(u32, maj, 10) catch {
                 return error.InvalidFormat;
             };
         }
 
         if (it.next()) |min| {
-            minor = std.fmt.parseInt(usize, min, 10) catch {
+            minor = std.fmt.parseInt(u32, min, 10) catch {
                 return error.InvalidFormat;
             };
         }
 
         if (it.next()) |p| {
-            patch = std.fmt.parseInt(usize, p, 10) catch {
+            patch = std.fmt.parseInt(u32, p, 10) catch {
                 return error.InvalidFormat;
             };
         }
 
-        if (major < 0 or minor < 0 or patch < 0) return error.InvalidFormat;
+        if (it.next()) |p| {
+            rev = std.fmt.parseInt(u32, p, 10) catch {
+                return error.InvalidFormat;
+            };
+        }
 
         return .{
             .string = in,
             .major = major,
             .minor = minor,
             .patch = patch,
+            .rev = rev,
         };
     }
 
@@ -60,13 +67,19 @@ pub const Version = struct {
         if (self.minor < other.minor) return .lt;
         if (self.patch > other.patch) return .gt;
         if (self.patch < other.patch) return .lt;
+        if (self.rev > other.rev) return .gt;
+        if (self.rev < other.rev) return .lt;
         return .eq;
     }
 
     pub fn format(self: Version, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        try writer.print("({}.{}.{})", .{ self.major, self.minor, self.patch });
+        if (self.rev > 0) {
+            try writer.print("({}.{}.{}.{})", .{ self.major, self.minor, self.patch, self.rev });
+        } else {
+            try writer.print("({}.{}.{})", .{ self.major, self.minor, self.patch });
+        }
     }
 };
 
@@ -302,4 +315,13 @@ test "Version.order" {
 
     try expectEqual(.gt, (try Version.init("1.1")).order(try Version.init("1.0.5")));
     try expectEqual(.lt, (try Version.init("0")).order(try Version.init("1")));
+}
+
+test "version with 4 fields" {
+    const expectEqual = testing.expectEqual;
+    const v1 = try Version.init("1.2.3-456");
+    try expectEqual(1, v1.major);
+    try expectEqual(2, v1.minor);
+    try expectEqual(3, v1.patch);
+    try expectEqual(456, v1.rev);
 }
