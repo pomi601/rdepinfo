@@ -1,0 +1,14 @@
+.{
+    .name = "test",
+    .version = "0.0.0",
+
+    .dependencies = .{
+        .rdepinfo = .{ .path = ".." },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "test.c",
+    },
+}

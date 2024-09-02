@@ -14,21 +14,9 @@ pub fn build(b: *std.Build) void {
     ) orelse .ReleaseFast;
     // -- end options --------------------------------------------------------
 
-    // -- begin static library -----------------------------------------------
-    const lib = b.addStaticLibrary(.{
-        .name = "rdepinfo",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = b.path("src/lib/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    b.installArtifact(lib);
-    // -- end static library -------------------------------------------------
-
     // -- begin executable ---------------------------------------------------
     const exe = b.addExecutable(.{
-        .name = "rdepinfo",
+        .name = "rdi",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -55,9 +43,24 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
     // -- end executable -----------------------------------------------------
 
+    // -- begin C static library -----------------------------------------------
+    const lib = b.addStaticLibrary(.{
+        .name = "rdepinfo",
+        .root_source_file = b.path("src/lib/repository_c.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lib.root_module.addImport("mos", mos);
+    lib.root_module.addImport("stable_list", stable_list);
+    lib.linkSystemLibrary("c");
+    b.installArtifact(lib);
+    b.getInstallStep().dependOn(&lib.step);
+
+    // -- end C static library -------------------------------------------------
+
     // -- begin check --------------------------------------------------------
     const exe_check = b.addExecutable(.{
-        .name = "rdepinfo",
+        .name = "rdepinfo_check",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
