@@ -10,7 +10,7 @@ int main(void) {
   std::cerr << "repo: " << std::hex << repo << "\n";
 
   {
-    std::ifstream file("../r/PACKAGES-all.gz", std::ios::binary);
+    std::ifstream file("PACKAGES-all.gz", std::ios::binary);
     if (!file) {
       std::cerr << "Could not open file.\n";
       return 1;
