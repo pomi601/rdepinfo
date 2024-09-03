@@ -56,6 +56,10 @@ pub fn build(b: *std.Build) !void {
             .root_source_file = b.path("src/lib/repository_c.zig"),
             .target = target_,
             .optimize = optimize,
+            // this prevents the inclusion of stack trace printing
+            // code, which is roughly 500k.
+            // https://ziggit.dev/t/strip-option-in-build-zig/1371/8
+            .strip = true,
         });
         lib.root_module.addImport("mos", mos);
         lib.root_module.addImport("stable_list", stable_list);
