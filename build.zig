@@ -1,9 +1,14 @@
 const std = @import("std");
 
-// Although this function looks imperative, note that its job is to
-// declaratively construct a build graph that will be executed by an external
-// runner.
-pub fn build(b: *std.Build) void {
+const targets: []const std.Target.Query = &.{
+    .{ .cpu_arch = .aarch64, .os_tag = .macos },
+    .{ .cpu_arch = .aarch64, .os_tag = .linux },
+    .{ .cpu_arch = .x86_64, .os_tag = .macos },
+    .{ .cpu_arch = .x86_64, .os_tag = .linux },
+    .{ .cpu_arch = .x86_64, .os_tag = .windows },
+};
+
+pub fn build(b: *std.Build) !void {
     // -- begin options ------------------------------------------------------
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -16,7 +21,7 @@ pub fn build(b: *std.Build) void {
 
     // -- begin executable ---------------------------------------------------
     const exe = b.addExecutable(.{
-        .name = "rdi",
+        .name = "rdepinfocmd",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -44,17 +49,28 @@ pub fn build(b: *std.Build) void {
     // -- end executable -----------------------------------------------------
 
     // -- begin C static library -----------------------------------------------
-    const lib = b.addStaticLibrary(.{
-        .name = "rdepinfo",
-        .root_source_file = b.path("src/lib/repository_c.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    lib.root_module.addImport("mos", mos);
-    lib.root_module.addImport("stable_list", stable_list);
-    lib.linkSystemLibrary("c");
-    b.installArtifact(lib);
-    b.getInstallStep().dependOn(&lib.step);
+    for (targets) |t| {
+        const target_ = b.resolveTargetQuery(t);
+        const lib = b.addStaticLibrary(.{
+            .name = "rdepinfo",
+            .root_source_file = b.path("src/lib/repository_c.zig"),
+            .target = target_,
+            .optimize = optimize,
+        });
+        lib.root_module.addImport("mos", mos);
+        lib.root_module.addImport("stable_list", stable_list);
+        lib.linkSystemLibrary("c");
+
+        const target_out = b.addInstallArtifact(lib, .{
+            .dest_dir = .{
+                .override = .{
+                    .custom = try t.zigTriple(b.allocator),
+                },
+            },
+        });
+
+        b.getInstallStep().dependOn(&target_out.step);
+    }
 
     // -- end C static library -------------------------------------------------
 
