@@ -38,7 +38,7 @@ extern void *repo_index_init(void *repo);
 extern void repo_index_deinit(void *index);
 extern NameAndVersionBuffer *repo_index_unsatisfied(void *index, void *repo,
                                                     char const *root_name_ptr,
-                                                    size_t root_name_sz);
+                                                    size_t root_name_len);
 
 extern NameAndVersionBuffer *repo_name_version_buffer_create(std::size_t n);
 extern void repo_name_version_buffer_destroy(NameAndVersionBuffer *buf);

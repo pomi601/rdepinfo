@@ -105,12 +105,13 @@ export fn repo_init() ?*anyopaque {
     return out;
 }
 
-/// Frees all associated memory.
+/// Frees internal buffers and invalidates repo struct
 export fn repo_deinit(repo_: ?*anyopaque) void {
     if (repo_) |repo__| {
         const repo: *Repository = @ptrCast(@alignCast(repo__));
         repo.deinit();
         std.heap.c_allocator.destroy(repo);
+        repo.* = undefined;
     }
 }
 

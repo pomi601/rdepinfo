@@ -14,7 +14,6 @@ const Cmdline = cmdline.Options(.{});
 
 const version = @import("lib/version.zig");
 const repository = @import("lib/repository.zig");
-const repository_index = @import("lib/repository_index.zig");
 const Repository = repository.Repository;
 
 const bioc_repos = struct {

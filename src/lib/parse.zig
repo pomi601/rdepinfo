@@ -7,7 +7,7 @@ const StringStorage = @import("stable_list").IndexedStringStorage;
 
 const version = @import("version.zig");
 const Version = version.Version;
-const Constraint = version.Constraint;
+const Constraint = version.Operator;
 const VersionConstraint = version.VersionConstraint;
 
 /// Parser
@@ -89,7 +89,7 @@ pub const Parser = struct {
 
     /// Take over ownership of strings storage. Must call deinit using
     /// the same allocator.
-    pub fn claimStrings(self: *Parser) !StringStorage {
+    pub fn detachStrings(self: *Parser) !StringStorage {
         if (self.strings) |s| {
             self.strings = null;
             return s;

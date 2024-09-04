@@ -14,44 +14,11 @@ const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const Version = version.Version;
 
-const repository_index = @import("repository_index.zig");
-
 pub const Repository = struct {
     alloc: Allocator,
     strings: ?StringStorage = null,
     packages: std.MultiArrayList(Package),
     parse_error: ?Parser.ParseError = null,
-
-    pub const Index = repository_index.Index;
-
-    pub const Package = struct {
-        name: []const u8 = "",
-        version: Version = .{},
-        depends: []NameAndVersionConstraint = &.{},
-        suggests: []NameAndVersionConstraint = &.{},
-        imports: []NameAndVersionConstraint = &.{},
-        linkingTo: []NameAndVersionConstraint = &.{},
-    };
-
-    pub const Iterator = struct {
-        index: usize = 0,
-        slice: std.MultiArrayList(Package).Slice,
-
-        pub fn init(repo: Repository) Iterator {
-            return .{
-                .slice = repo.packages.slice(),
-            };
-        }
-
-        pub fn next(self: *Iterator) ?Package {
-            if (self.index < self.slice.len) {
-                const out = self.index;
-                self.index += 1;
-                return self.slice.get(out);
-            }
-            return null;
-        }
-    };
 
     /// Call deinit when finished.
     pub fn init(alloc: Allocator) !Repository {
@@ -128,7 +95,7 @@ pub const Repository = struct {
         };
 
         // take over parser string storage
-        var parser_strings = try parser.claimStrings();
+        var parser_strings = try parser.detachStrings();
         if (self.strings) |*ss| {
             try ss.claimOther(&parser_strings);
         } else {
@@ -232,7 +199,231 @@ pub const Repository = struct {
             }
         }
     }
+
+    //
+    // -- iterator -----------------------------------------------------------
+    //
+
+    pub const Package = struct {
+        name: []const u8 = "",
+        version: Version = .{},
+        depends: []NameAndVersionConstraint = &.{},
+        suggests: []NameAndVersionConstraint = &.{},
+        imports: []NameAndVersionConstraint = &.{},
+        linkingTo: []NameAndVersionConstraint = &.{},
+    };
+
+    pub const Iterator = struct {
+        index: usize = 0,
+        slice: std.MultiArrayList(Package).Slice,
+
+        pub fn init(repo: Repository) Iterator {
+            return .{
+                .slice = repo.packages.slice(),
+            };
+        }
+
+        pub fn next(self: *Iterator) ?Package {
+            if (self.index < self.slice.len) {
+                const out = self.index;
+                self.index += 1;
+                return self.slice.get(out);
+            }
+            return null;
+        }
+    };
+
+    //
+    // -- index --------------------------------------------------------------
+    //
+
+    pub const Index = struct {
+        const MapType = std.StringHashMap(AvailableVersions);
+        items: MapType,
+
+        const AvailableVersions = union(enum) {
+            single: VersionIndex,
+            multiple: std.ArrayList(VersionIndex),
+
+            pub fn format(
+                self: AvailableVersions,
+                comptime fmt: []const u8,
+                options: std.fmt.FormatOptions,
+                writer: anytype,
+            ) !void {
+                _ = options;
+                _ = fmt;
+                switch (self) {
+                    .single => |vi| {
+                        try writer.print("(IndexVersion.single {s} {})", .{
+                            vi.version.string,
+                            vi.index,
+                        });
+                    },
+                    .multiple => |l| {
+                        try writer.print("(IndexVersion.multiple", .{});
+                        for (l.items) |x| {
+                            try writer.print(" {s}", .{x.version});
+                        }
+                        try writer.print(")", .{});
+                    },
+                }
+            }
+        };
+
+        const VersionIndex = struct { version: Version, index: usize };
+
+        /// Create an index of the repo. Caller must deinit with the
+        /// same allocator.
+        pub fn init(repo: Repository) !Index {
+            // Index only supports up to max Index.Size items.
+            if (repo.packages.len > std.math.maxInt(MapType.Size)) return error.OutOfMemory;
+            var out = MapType.init(repo.alloc);
+            try out.ensureTotalCapacity(@intCast(repo.packages.len));
+
+            const slice = repo.packages.slice();
+            const names = slice.items(.name);
+            const versions = slice.items(.version);
+
+            var idx: usize = 0;
+            while (idx < repo.packages.len) : (idx += 1) {
+                const name = names[idx];
+                const ver = versions[idx];
+
+                if (out.getPtr(name)) |p| {
+                    switch (p.*) {
+                        .single => |vi| {
+                            p.* = .{
+                                .multiple = std.ArrayList(VersionIndex).init(repo.alloc),
+                            };
+                            try p.multiple.append(vi);
+                            try p.multiple.append(.{
+                                .version = ver,
+                                .index = idx,
+                            });
+                        },
+                        .multiple => |*l| {
+                            try l.append(.{
+                                .version = ver,
+                                .index = idx,
+                            });
+                        },
+                    }
+                } else {
+                    out.putAssumeCapacityNoClobber(name, .{
+                        .single = .{
+                            .version = ver,
+                            .index = idx,
+                        },
+                    });
+                }
+            }
+            return .{ .items = out };
+        }
+
+        pub fn deinit(self: *Index) void {
+            var it = self.items.valueIterator();
+            while (it.next()) |v| switch (v.*) {
+                .single => continue,
+                .multiple => |l| {
+                    l.deinit();
+                },
+            };
+
+            self.items.deinit();
+            self.* = undefined;
+        }
+
+        /// Given a slice of required packages, return a slice of missing dependencies, if any.
+        pub fn unsatisfied(
+            self: Index,
+            alloc: Allocator,
+            require: []NameAndVersionConstraint,
+        ) error{OutOfMemory}![]NameAndVersionConstraint {
+            var out = std.ArrayList(NameAndVersionConstraint).init(alloc);
+            defer out.deinit();
+
+            for (require) |d| top: {
+                if (isBasePackage(d.name)) continue;
+                if (isRecommendedPackage(d.name)) continue;
+                if (self.items.get(d.name)) |entry| switch (entry) {
+                    .single => |e| {
+                        if (d.version_constraint.satisfied(e.version)) break;
+                    },
+                    .multiple => |es| {
+                        for (es.items) |e| {
+                            if (d.version_constraint.satisfied(e.version)) break :top;
+                        }
+                    },
+                };
+                try out.append(d);
+            }
+            return out.toOwnedSlice();
+        }
+
+        pub fn isBasePackage(name: []const u8) bool {
+            inline for (base_packages) |base| {
+                if (std.mem.eql(u8, base, name)) return true;
+            }
+            return false;
+        }
+
+        pub fn isRecommendedPackage(name: []const u8) bool {
+            inline for (recommended_packages) |reco| {
+                if (std.mem.eql(u8, reco, name)) return true;
+            }
+            return false;
+        }
+
+        //
+
+        /// Return an owned slice of package names and versions thate
+        /// cannot be satisfied in the given repository, starting with the
+        /// given root package. Caller must free the slice with the same
+        /// allocator.
+        pub fn unmetDependencies(
+            self: Index,
+            alloc: Allocator,
+            repo: Repository,
+            root: []const u8,
+        ) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
+            if (repo.findPackage(root)) |p| {
+                var broken = std.ArrayList(NameAndVersionConstraint).init(alloc);
+                defer broken.deinit();
+
+                const deps = try self.unsatisfied(alloc, p.depends);
+                const impo = try self.unsatisfied(alloc, p.imports);
+                const link = try self.unsatisfied(alloc, p.linkingTo);
+                defer alloc.free(deps);
+                defer alloc.free(impo);
+                defer alloc.free(link);
+
+                try broken.appendSlice(deps);
+                try broken.appendSlice(impo);
+                try broken.appendSlice(link);
+
+                return broken.toOwnedSlice();
+            }
+            return error.NotFound;
+        }
+    };
 };
+
+// dependencies on these packages are not checked
+const base_packages = .{
+    "base",   "compiler", "datasets", "graphics", "grDevices",
+    "grid",   "methods",  "parallel", "splines",  "stats",
+    "stats4", "tcltk",    "tools",    "utils",    "R",
+};
+const recommended_packages = .{
+    "boot",    "class",      "MASS",    "cluster", "codetools",
+    "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
+    "nlme",    "nnet",       "rpart",   "spatial", "survival",
+};
+
+//
+// -- test -------------------------------------------------------------------
+//
 
 test "PACKAGES.gz" {
     const path = "PACKAGES.gz";
