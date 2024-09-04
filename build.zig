@@ -56,6 +56,10 @@ pub fn build(b: *std.Build) !void {
             .root_source_file = b.path("src/lib/repository_c.zig"),
             .target = target_,
             .optimize = optimize,
+
+            // position independent code
+            .pic = true,
+
             // this prevents the inclusion of stack trace printing
             // code, which is roughly 500k.
             // https://ziggit.dev/t/strip-option-in-build-zig/1371/8
