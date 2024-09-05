@@ -42,7 +42,7 @@ usage()
 
 positional_args_to_list()
 {
-    # ignore options and collect them all into a single R expression
+    # ignore options and collect the rest into a single R expression
     result=""
     for arg in "$@"; do
         case $arg in
@@ -59,7 +59,7 @@ positional_args_to_list()
         esac
     done
     result="${result})"
-    echo "$result"
+    return "$result"
 }
 
 repos()
