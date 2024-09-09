@@ -19,20 +19,20 @@ usage()
     echo
     echo "Commands:"
     echo
-    echo "  depends <pkg>         Print immediate dependencies of pkg, one per line."
-    echo "  depends-full <pkg>    Print recursive dependencies of pkg, one per line."
-    echo "  depends-grouped <pkg> Print dependencies of pkg each with its dependencies."
-    echo "  depends-ordered <pkg> Print dependencies of pkg in build order."
-    echo "  depends-urls <pkg>    Print source download URLs for pkg and its dependencies."
-    echo "  dump-packages         Print essential package information in DCF for all"
-    echo "                        packages. Slow."
-    echo "  known-repos           Print known R repositories, one per line."
-    echo "  repos                 Print configured R repositories, one per line."
+    echo "  depends <pkg>            Print immediate dependencies of pkg, one per line."
+    echo "  depends-full <pkg>       Print recursive dependencies of pkg, one per line."
+    echo "  depends-grouped <pkg>... Print dependencies of pkg each with its dependencies."
+    echo "  depends-ordered <pkg>    Print dependencies of pkg in build order."
+    echo "  depends-urls <pkg>...    Print source download URLs for pkg and its dependencies."
+    echo "  dump-packages            Print essential package information in DCF for all"
+    echo "                           packages. Slow."
+    echo "  known-repos              Print known R repositories, one per line."
+    echo "  repos                    Print configured R repositories, one per line."
     echo
     echo "Options:"
     echo
-    echo "  --all-repos           Load all known package repositories. Slow."
-    echo "  --time                Including timing information to stderr."
+    echo "  --all-repos              Load all known package repositories. Slow."
+    echo "  --time                   Including timing information to stderr."
     echo
     echo "Examples:"
     echo
@@ -59,7 +59,7 @@ positional_args_to_list()
         esac
     done
     result="${result})"
-    return "$result"
+    echo "$result"
 }
 
 repos()
@@ -111,10 +111,13 @@ depends_ordered() {
 }
 
 depends_urls() {
+    # TODO: this approach of passing multiple packages at once does
+    # not handle duplicates well
+    pkgs=$(positional_args_to_list "${@}")
     if [[ -n "$OPT_ALL_REPOS" ]]; then
-        "$RSCRIPT" -e "$MY_R load_all_repos(); depend_urls('$1')"
+        "$RSCRIPT" -e "$MY_R load_all_repos(); depend_urls($pkgs)"
     else
-        "$RSCRIPT" -e "$MY_R depend_urls('$1')"
+        "$RSCRIPT" -e "$MY_R depend_urls($pkgs)"
     fi
 }
 
@@ -191,7 +194,7 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         "depends-urls" )
-            depends_urls "$2"
+            depends_urls "${@:2}"
             exit $?
             ;;
 

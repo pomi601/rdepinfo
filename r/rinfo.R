@@ -63,7 +63,8 @@ depend_urls <- function(pkgs) {
   check_pkgs(pkgs, names)
   dl <- unlist(utils:::.make_dependency_list(pkgs, ap, recursive = TRUE))
 
-  cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
+  for (pkg in pkgs)
+    cat(contrib.url(ap[pkg, "Repository"]), "/", pkg, "_", ap[pkg, "Version"], ".tar.gz", "\n", sep = "")
 
   check_pkgs(dl, names)
   for (pkg in dl) {
