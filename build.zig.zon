@@ -5,7 +5,7 @@
     .dependencies = .{
         .cmdline = .{
             .url = "https://codeberg.org/mocompute/cmdline/archive/main.tar.gz",
-            .hash = "12206f54440998e1365a1e096130103acf0f905beccec5672c99be576255e49165f3",
+            .hash = "12205e42f602e2a308eade5a02327d2bee70f058451dde247b3c1c2f9b81be23da72",
         },
         .mos = .{
             .url = "https://codeberg.org/mocompute/mos/archive/main.tar.gz",
