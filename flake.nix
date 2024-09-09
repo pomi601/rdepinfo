@@ -3,15 +3,37 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+
+    zig.url = "github:mitchellh/zig-overlay";
+    zig.inputs.nixpkgs.follows = "nixpkgs";
+
+    zls.url = "github:zigtools/zls";
+    zls.inputs.nixpkgs.follows = "nixpkgs";
+    zls.inputs.zig-overlay.follows = "zig";
   };
 
-  outputs = { self, nixpkgs, ... }:
+  outputs = { self, zig, zls, nixpkgs, ... }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      zlsOverlay = (final: prev: {
+        zlspkgs = zls.packages.${system};
+      });
+      pkgs = import nixpkgs {
+        system = system;
+        overlays = [
+          zig.overlays.default
+          zlsOverlay
+        ];
+      };
     in
       {
         devShells.${system}.default =
-          import ./shell.nix { inherit pkgs; };
+          pkgs.mkShellNoCC {
+            packages = with pkgs; [
+              R
+              zigpkgs.master
+              # zlspkgs.zls
+            ];
+          };
       };
 }
