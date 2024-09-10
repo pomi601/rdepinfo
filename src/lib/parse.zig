@@ -500,9 +500,7 @@ pub const Tokenizer = struct {
                 },
                 .unparsed => {
                     switch (c) {
-                        '\n' => {
-                            break;
-                        },
+                        '\n' => break,
                         else => continue,
                     }
                 },
