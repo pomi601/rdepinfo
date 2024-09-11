@@ -14,6 +14,34 @@ const version = @import("version.zig");
 const NameAndVersionConstraint = version.NameAndVersionConstraint;
 const Version = version.Version;
 
+// dependencies on these packages are not checked
+const base_packages = .{
+    "base",   "compiler", "datasets", "graphics", "grDevices",
+    "grid",   "methods",  "parallel", "splines",  "stats",
+    "stats4", "tcltk",    "tools",    "utils",    "R",
+};
+const recommended_packages = .{
+    "boot",    "class",      "MASS",    "cluster", "codetools",
+    "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
+    "nlme",    "nnet",       "rpart",   "spatial", "survival",
+};
+
+pub fn isBasePackage(name: []const u8) bool {
+    inline for (base_packages) |base| {
+        if (std.mem.eql(u8, base, name)) return true;
+    }
+    return false;
+}
+
+pub fn isRecommendedPackage(name: []const u8) bool {
+    inline for (recommended_packages) |reco| {
+        if (std.mem.eql(u8, reco, name)) return true;
+    }
+    return false;
+}
+
+//
+
 pub const Repository = struct {
     alloc: Allocator,
     strings: ?StringStorage = null,
@@ -59,17 +87,50 @@ pub const Repository = struct {
         return it.next();
     }
 
-    /// Return package information for name.
-    pub fn findPackage(self: Repository, name: []const u8) ?Package {
+    /// Return package(s) information for given NameAndVersionConstraint.
+    pub fn findPackage(
+        self: Repository,
+        alloc: Allocator,
+        navc: NameAndVersionConstraint,
+        comptime options: struct { max_results: u32 = 16 },
+    ) error{OutOfMemory}![]Package {
+        var out = try std.ArrayList(Package).initCapacity(alloc, options.max_results);
         const slice = self.packages.slice();
         var index: usize = 0;
         for (slice.items(.name)) |n| {
-            if (mem.eql(u8, n, name)) {
-                return slice.get(index);
+            if (mem.eql(u8, n, navc.name)) {
+                if (navc.version_constraint.satisfied(slice.items(.version)[index])) {
+                    out.appendAssumeCapacity(slice.get(index));
+                    if (out.items.len == options.max_results) return error.OutOfMemory;
+                }
             }
             index += 1;
         }
-        return null;
+        return out.toOwnedSlice();
+    }
+
+    /// Return the latest package, if any, that satisfies the given
+    /// NameAndVersionConstraint. If there are multiple packages that
+    /// satisfy the constraint, return the one with the highest
+    /// version.
+    pub fn findLatestPackage(
+        self: Repository,
+        alloc: Allocator,
+        navc: NameAndVersionConstraint,
+    ) error{OutOfMemory}!?Package {
+        const packages = try self.findPackage(alloc, navc, .{});
+        defer alloc.free(packages);
+        switch (packages.len) {
+            0 => return null,
+            1 => return packages[0],
+            else => {
+                var latest = packages[0];
+                for (packages) |p| {
+                    if (p.version.order(latest.version) == .gt) latest = p;
+                }
+                return latest;
+            },
+        }
     }
 
     /// Create an index of this repository. Caller must call deinit.
@@ -234,6 +295,102 @@ pub const Repository = struct {
     };
 
     //
+    // -- transitive dependencies---------------------------------------------
+    //
+
+    /// Given a package name, return a slice of its transitive
+    /// dependencies. If there is more than one package with the same
+    /// name, select the latest version as the root.
+    pub fn transitiveDependencies(
+        self: Repository,
+        alloc: Allocator,
+        navc: NameAndVersionConstraint,
+    ) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+
+        var out = NameAndVersionConstraintHashMap.init(alloc);
+        defer out.deinit();
+
+        if (try self.findLatestPackage(alloc, navc)) |root_package| {
+            try self.doTransitiveDependencies(&arena, root_package, &out);
+            return try alloc.dupe(NameAndVersionConstraint, out.keys());
+        } else return error.NotFound;
+    }
+
+    /// Given a package name, return a slice of its transitive
+    /// dependencies. If there is more than one package with the same
+    /// name, select the latest version as the root. Does not report
+    /// dependencies on base or recommended packages.
+    pub fn transitiveDependenciesNoBase(
+        self: Repository,
+        alloc: Allocator,
+        navc: NameAndVersionConstraint,
+    ) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
+        var arena = std.heap.ArenaAllocator.init(alloc);
+        defer arena.deinit();
+
+        const out = NameAndVersionConstraintHashMap.init(alloc);
+        defer out.deinit();
+
+        if (self.findLatestPackage(alloc, navc)) |root_package| {
+            try self.doTransitiveDependencies(&arena, &out, root_package);
+
+            var result = std.ArrayList(NameAndVersionConstraint).initCapacity(alloc, out.items.len);
+            for (out.keys()) |x| {
+                if (isBasePackage(x.name)) continue;
+                if (isRecommendedPackage(x.name)) continue;
+                result.appendAssumeCapacity(x);
+            }
+            return result.toOwnedSlice();
+        } else return error.NotFound;
+    }
+
+    const NameAndVersionConstraintHashMap = std.ArrayHashMap(
+        NameAndVersionConstraint,
+        bool,
+        version.NameAndVersionConstraintContext,
+        true,
+    );
+
+    fn doTransitiveDependencies(
+        self: Repository,
+        arena: *std.heap.ArenaAllocator,
+        package: Package,
+        out: *NameAndVersionConstraintHashMap,
+    ) !void {
+        for (package.depends) |navc| {
+            if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
+                try out.put(navc, true);
+                try self.doTransitiveDependencies(arena, p, out);
+            } else return error.NotFound;
+        }
+        for (package.imports) |navc| {
+            if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
+                try out.put(navc, true);
+                try self.doTransitiveDependencies(arena, p, out);
+            } else return error.NotFound;
+        }
+        for (package.linkingTo) |navc| {
+            if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
+                try out.put(navc, true);
+                try self.doTransitiveDependencies(arena, p, out);
+            } else return error.NotFound;
+        }
+
+        // for (package.depends) |x| try out.put(x, true);
+        // for (package.imports) |x| try out.put(x, true);
+        // for (package.linkingTo) |x| try out.put(x, true);
+
+        // const depends = try arena.allocator().dupe(NameAndVersionConstraint, out.keys());
+        // for (depends) |navc| {
+        //     if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
+        //         try self.doTransitiveDependencies(arena, p, out);
+        //     } else return error.NotFound;
+        // }
+    }
+
+    //
     // -- index --------------------------------------------------------------
     //
 
@@ -361,20 +518,6 @@ pub const Repository = struct {
             return out.toOwnedSlice();
         }
 
-        pub fn isBasePackage(name: []const u8) bool {
-            inline for (base_packages) |base| {
-                if (std.mem.eql(u8, base, name)) return true;
-            }
-            return false;
-        }
-
-        pub fn isRecommendedPackage(name: []const u8) bool {
-            inline for (recommended_packages) |reco| {
-                if (std.mem.eql(u8, reco, name)) return true;
-            }
-            return false;
-        }
-
         //
 
         /// Return an owned slice of package names and versions thate
@@ -407,18 +550,6 @@ pub const Repository = struct {
             return error.NotFound;
         }
     };
-};
-
-// dependencies on these packages are not checked
-const base_packages = .{
-    "base",   "compiler", "datasets", "graphics", "grDevices",
-    "grid",   "methods",  "parallel", "splines",  "stats",
-    "stats4", "tcltk",    "tools",    "utils",    "R",
-};
-const recommended_packages = .{
-    "boot",    "class",      "MASS",    "cluster", "codetools",
-    "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
-    "nlme",    "nnet",       "rpart",   "spatial", "survival",
 };
 
 //
@@ -483,7 +614,7 @@ test "PACKAGES.gz" {
     try testing.expectEqualStrings("AATtools", repo.packages.items(.name)[2]);
     try testing.expectEqual(0, repo.packages.items(.version)[2].major);
 
-    const pack = repo.findPackage("A3");
+    const pack = try repo.findLatestPackage(alloc, .{ .name = "A3" });
     try testing.expect(pack != null);
     try testing.expectEqualStrings("A3", pack.?.name);
 
@@ -549,5 +680,72 @@ test "PACKAGES sanity check" {
                 nav.version_constraint,
             });
         }
+    }
+}
+
+test "find latest package" {
+    const alloc = testing.allocator;
+    const data1 =
+        \\Package: foo
+        \\Version: 1.0
+        \\
+        \\Package: foo
+        \\Version: 1.0.1
+    ;
+    const data2 =
+        \\Package: foo
+        \\Version: 1.0.2
+        \\
+        \\Package: foo
+        \\Version: 1.0.1
+    ;
+
+    {
+        var repo = try Repository.init(alloc);
+        defer repo.deinit();
+        _ = try repo.read(data1);
+
+        const package = try repo.findLatestPackage(alloc, .{ .name = "foo" });
+        try testing.expectEqualStrings("foo", package.?.name);
+        try testing.expectEqual(Version{ .major = 1, .minor = 0, .patch = 1, .rev = 0 }, package.?.version);
+    }
+    {
+        var repo = try Repository.init(alloc);
+        defer repo.deinit();
+        _ = try repo.read(data2);
+
+        const package = try repo.findLatestPackage(alloc, .{ .name = "foo" });
+        try testing.expectEqualStrings("foo", package.?.name);
+        try testing.expectEqual(Version{ .major = 1, .minor = 0, .patch = 2, .rev = 0 }, package.?.version);
+    }
+}
+
+test "transitive dependencies" {
+    const alloc = testing.allocator;
+    const data1 =
+        \\Package: parent
+        \\Version: 1.0
+        \\
+        \\Package: child
+        \\Version: 1.0
+        \\Depends: parent (>= 1.0)
+        \\
+        \\Package: grandchild
+        \\Version: 1.0
+        \\Depends: child (>= 1.0)
+    ;
+
+    {
+        var repo = try Repository.init(alloc);
+        defer repo.deinit();
+        _ = try repo.read(data1);
+
+        const res = try repo.transitiveDependencies(alloc, .{ .name = "grandchild" });
+        defer alloc.free(res);
+
+        try testing.expectEqualDeep(
+            res[0],
+            NameAndVersionConstraint{ .name = "child", .version_constraint = try version.VersionConstraint.initString(.gte, "1.0") },
+        );
     }
 }

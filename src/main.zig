@@ -137,7 +137,7 @@ const Program = struct {
         }
         const name = words[1];
 
-        const package = self.repo.findPackage(name);
+        const package = try self.repo.findLatestPackage(self.alloc, .{ .name = name });
         if (package) |p| {
             var iter = struct {
                 package: Repository.Package,
@@ -171,7 +171,7 @@ const Program = struct {
         }
         const name = words[1];
 
-        const package = self.repo.findPackage(name);
+        const package = try self.repo.findLatestPackage(self.alloc, .{ .name = name });
         if (package) |p| {
             for (p.depends) |x| {
                 try stdout.print("{s}\n", .{x.name});

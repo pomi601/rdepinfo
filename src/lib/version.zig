@@ -70,6 +70,10 @@ pub const Version = extern struct {
         return .eq;
     }
 
+    pub fn eql(self: Version, other: Version) bool {
+        return self.major == other.major and self.minor == other.minor and self.patch == other.patch and self.rev == other.rev;
+    }
+
     pub fn format(
         self: Version,
         comptime fmt: []const u8,
@@ -151,6 +155,16 @@ pub const VersionConstraint = extern struct {
         }
     }
 
+    pub fn eql(a: VersionConstraint, b: VersionConstraint) bool {
+        return a.operator == b.operator and a.version == b.version;
+    }
+
+    pub fn hash(k: VersionConstraint) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHashStrat(std.hash.Wyhash.init(0), k, .Shallow);
+        return hasher.final();
+    }
+
     pub fn format(
         self: VersionConstraint,
         comptime fmt: []const u8,
@@ -171,7 +185,7 @@ pub const NameAndVersionConstraint = struct {
     /// constraint. The format is `name (>= 3.2)` where the
     /// parenthetical expression is optional. The operators `=` and
     /// `==` are considered equal.
-    pub fn init(string: []const u8) error{InvalidFormat}!NameAndVersionConstraint {
+    pub fn parse(string: []const u8) error{InvalidFormat}!NameAndVersionConstraint {
         const trim = std.mem.trim;
 
         const in = trim(u8, string, &std.ascii.whitespace);
@@ -205,6 +219,15 @@ pub const NameAndVersionConstraint = struct {
         };
     }
 
+    pub fn eql(a: NameAndVersionConstraint, b: NameAndVersionConstraint) bool {
+        return std.mem.eql(u8, a.name, b.name) and VersionConstraint.eql(a.version_constraint, b.version_constraint);
+    }
+    pub fn hash(k: VersionConstraint) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHashStrat(std.hash.Wyhash.init(0), k, .Deep);
+        return hasher.final();
+    }
+
     pub fn format(
         self: NameAndVersionConstraint,
         comptime fmt: []const u8,
@@ -217,34 +240,47 @@ pub const NameAndVersionConstraint = struct {
     }
 };
 
+pub const NameAndVersionConstraintContext = struct {
+    pub const eql = std.array_hash_map.getAutoEqlFn(
+        NameAndVersionConstraint,
+        Self,
+    );
+    pub const hash = std.array_hash_map.getAutoHashStratFn(
+        NameAndVersionConstraint,
+        Self,
+        .Deep,
+    );
+    const Self = @This();
+};
+
 test "NameAndVersionConstraint" {
     const expectEqual = testing.expectEqual;
     const expectEqualStrings = testing.expectEqualStrings;
     const expectError = testing.expectError;
 
-    const v1 = try NameAndVersionConstraint.init("package");
+    const v1 = try NameAndVersionConstraint.parse("package");
     try expectEqualStrings("package", v1.name);
     try expectEqual(.gte, v1.version_constraint.operator);
     try expectEqual(0, v1.version_constraint.version.major);
     try expectEqual(0, v1.version_constraint.version.minor);
     try expectEqual(0, v1.version_constraint.version.patch);
 
-    const v2 = try NameAndVersionConstraint.init("  pak  ( >= 2.0 ) ");
+    const v2 = try NameAndVersionConstraint.parse("  pak  ( >= 2.0 ) ");
     try expectEqualStrings("pak", v2.name);
     try expectEqual(.gte, v2.version_constraint.operator);
     try expectEqual(2, v2.version_constraint.version.major);
 
-    const v3 = try NameAndVersionConstraint.init("x(= 1)");
+    const v3 = try NameAndVersionConstraint.parse("x(= 1)");
     try expectEqualStrings("x", v3.name);
     try expectEqual(.eq, v3.version_constraint.operator);
     try expectEqual(1, v3.version_constraint.version.major);
 
-    const v4 = try NameAndVersionConstraint.init("x (=1)");
+    const v4 = try NameAndVersionConstraint.parse("x (=1)");
     try expectEqualStrings("x", v4.name);
     try expectEqual(.eq, v4.version_constraint.operator);
     try expectEqual(1, v4.version_constraint.version.major);
 
-    try expectError(error.InvalidFormat, NameAndVersionConstraint.init("(= 1)"));
+    try expectError(error.InvalidFormat, NameAndVersionConstraint.parse("(= 1)"));
 }
 
 test "VersionConstraint" {
