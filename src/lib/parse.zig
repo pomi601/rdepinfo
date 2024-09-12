@@ -1,3 +1,6 @@
+//! Parse Debian Control Files with a focus on the R PACKAGES file !
+//! format.
+//!
 //! Inspired by Zig tokenizer and parser.
 const std = @import("std");
 const testing = std.testing;

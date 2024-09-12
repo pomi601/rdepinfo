@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) !void {
         const target_ = b.resolveTargetQuery(t);
         const lib = b.addStaticLibrary(.{
             .name = "rdepinfo",
-            .root_source_file = b.path("src/lib/repository_c.zig"),
+            .root_source_file = b.path("src/lib/root.zig"),
             .target = target_,
             .optimize = optimize,
 
