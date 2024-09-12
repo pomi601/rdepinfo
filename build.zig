@@ -46,9 +46,13 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addImport("stable_list", stable_list);
 
     b.installArtifact(exe);
+    b.getInstallStep().dependOn(&exe.step);
     // -- end executable -----------------------------------------------------
 
     // -- begin C static library -----------------------------------------------
+
+    var lib_for_docs: ?*std.Build.Step.Compile = null;
+
     for (targets) |t| {
         const target_ = b.resolveTargetQuery(t);
         const lib = b.addStaticLibrary(.{
@@ -68,6 +72,9 @@ pub fn build(b: *std.Build) !void {
         lib.root_module.addImport("mos", mos);
         lib.root_module.addImport("stable_list", stable_list);
         lib.linkSystemLibrary("c");
+
+        // just take the first one, it doesn't matter
+        if (lib_for_docs == null) lib_for_docs = lib;
 
         const target_out = b.addInstallArtifact(lib, .{
             .dest_dir = .{
@@ -166,4 +173,21 @@ pub fn build(b: *std.Build) !void {
     })).step);
 
     // -- end dependency tests ---------------------------------------------
+
+    // -- begin generated documentation ------------------------------------
+
+    if (lib_for_docs) |lib| {
+        const doc_step = b.step("doc", "Generate documentation");
+        const doc_install = b.addInstallDirectory(.{
+            .install_dir = .prefix,
+            .install_subdir = "doc",
+            .source_dir = lib.getEmittedDocs(),
+        });
+        doc_install.step.dependOn(&lib.step);
+        doc_step.dependOn(&doc_install.step);
+        b.getInstallStep().dependOn(&doc_install.step);
+    }
+
+    // -- end generated documentation --------------------------------------
+
 }

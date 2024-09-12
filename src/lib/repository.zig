@@ -20,12 +20,17 @@ const base_packages = .{
     "grid",   "methods",  "parallel", "splines",  "stats",
     "stats4", "tcltk",    "tools",    "utils",    "R",
 };
+
+// it's dubious to also exclude these from dependency checking,
+// because some installations may not have recommended packages
+// installed. But we still exclude them.
 const recommended_packages = .{
     "boot",    "class",      "MASS",    "cluster", "codetools",
     "foreign", "KernSmooth", "lattice", "Matrix",  "mgcv",
     "nlme",    "nnet",       "rpart",   "spatial", "survival",
 };
 
+/// Return true if name is a base package.
 pub fn isBasePackage(name: []const u8) bool {
     inline for (base_packages) |base| {
         if (std.mem.eql(u8, base, name)) return true;
@@ -33,6 +38,7 @@ pub fn isBasePackage(name: []const u8) bool {
     return false;
 }
 
+/// Return true if name is a recommended package.
 pub fn isRecommendedPackage(name: []const u8) bool {
     inline for (recommended_packages) |reco| {
         if (std.mem.eql(u8, reco, name)) return true;
@@ -42,13 +48,16 @@ pub fn isRecommendedPackage(name: []const u8) bool {
 
 //
 
+/// Represents a package repository and provides a parser to update
+/// itself from a Debian Control File (DCF), as used in standard R
+/// package repository PACKAGES files.
 pub const Repository = struct {
     alloc: Allocator,
     strings: ?StringStorage = null,
     packages: std.MultiArrayList(Package),
     parse_error: ?Parser.ParseError = null,
 
-    /// Call deinit when finished.
+    /// Caller must call deinit to release internal buffers.
     pub fn init(alloc: Allocator) !Repository {
         return .{
             .alloc = alloc,
@@ -234,7 +243,7 @@ pub const Repository = struct {
         idx.* += 1;
         switch (nodes[idx.*]) {
             .string_node => |s| {
-                return try Version.init(s.value);
+                return try Version.parse(s.value);
             },
             // expect .string_node immediately after .field for a Version field
             else => unreachable,
@@ -265,6 +274,7 @@ pub const Repository = struct {
     // -- iterator -----------------------------------------------------------
     //
 
+    /// Represents a single package and its dependencies.
     pub const Package = struct {
         name: []const u8 = "",
         version: Version = .{},
@@ -274,10 +284,13 @@ pub const Repository = struct {
         linkingTo: []NameAndVersionConstraint = &.{},
     };
 
+    /// An iterator over a Repository.
     pub const Iterator = struct {
         index: usize = 0,
         slice: std.MultiArrayList(Package).Slice,
 
+        /// Return an iterator which provides one package at a time
+        /// from the Repository.
         pub fn init(repo: Repository) Iterator {
             return .{
                 .slice = repo.packages.slice(),
@@ -394,6 +407,7 @@ pub const Repository = struct {
     // -- index --------------------------------------------------------------
     //
 
+    /// Represents an Index of a Repository.
     pub const Index = struct {
         const MapType = std.StringHashMap(AvailableVersions);
         items: MapType,
@@ -430,8 +444,9 @@ pub const Repository = struct {
 
         const VersionIndex = struct { version: Version, index: usize };
 
-        /// Create an index of the repo. Caller must deinit with the
-        /// same allocator.
+        /// Create an index of the repo. Uses the repository's
+        /// allocator for its internal buffers. Caller must deinit to
+        /// release buffers.
         pub fn init(repo: Repository) !Index {
             // Index only supports up to max Index.Size items.
             if (repo.packages.len > std.math.maxInt(MapType.Size)) return error.OutOfMemory;
@@ -478,6 +493,7 @@ pub const Repository = struct {
             return .{ .items = out };
         }
 
+        /// Release buffers and invalidate.
         pub fn deinit(self: *Index) void {
             var it = self.items.valueIterator();
             while (it.next()) |v| switch (v.*) {
@@ -530,7 +546,7 @@ pub const Repository = struct {
             repo: Repository,
             root: []const u8,
         ) error{ OutOfMemory, NotFound }![]NameAndVersionConstraint {
-            if (repo.findPackage(root)) |p| {
+            if (try repo.findLatestPackage(alloc, .{ .name = root })) |p| {
                 var broken = std.ArrayList(NameAndVersionConstraint).init(alloc);
                 defer broken.deinit();
 
@@ -745,7 +761,7 @@ test "transitive dependencies" {
 
         try testing.expectEqualDeep(
             res[0],
-            NameAndVersionConstraint{ .name = "child", .version_constraint = try version.VersionConstraint.initString(.gte, "1.0") },
+            NameAndVersionConstraint{ .name = "child", .version_constraint = try version.VersionConstraint.parse(.gte, "1.0") },
         );
     }
 }

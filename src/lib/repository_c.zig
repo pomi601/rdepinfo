@@ -1,12 +1,19 @@
+//! The C interface to rdepinfo.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const version = @import("version.zig");
 const Repository = @import("repository.zig").Repository;
 
+/// A C representation of a package name and version.
 pub const CNameAndVersion = extern struct {
+    /// Note that this is NOT a null-terminated string.
     name_ptr: [*]const u8 = "",
+
+    /// Length of string pointed to by name_ptr.
     name_len: usize = 0,
+
+    /// The version constraint.
     version: version.VersionConstraint = .{},
 
     pub fn format(
@@ -23,6 +30,7 @@ pub const CNameAndVersion = extern struct {
         );
     }
 
+    /// Print name and version to stderr.
     export fn debug_print_name_and_version(self: *const CNameAndVersion) void {
         const stderr = std.io.getStdErr();
         stderr.writer().print("{}", .{self}) catch {
@@ -31,6 +39,7 @@ pub const CNameAndVersion = extern struct {
     }
 };
 
+/// A buffer to hold one or more CNameAndVersion structs.
 pub const NameAndVersionBuffer = extern struct {
     ptr: [*]CNameAndVersion,
     len: usize,

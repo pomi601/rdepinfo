@@ -242,7 +242,7 @@ pub const Parser = struct {
                 },
                 .identifier_open_round => switch (token.tag) {
                     .less_than, .less_than_equal, .equal, .greater_than_equal, .greater_than => {
-                        const ver = Version.init(try self.lexeme(token)) catch {
+                        const ver = Version.parse(try self.lexeme(token)) catch {
                             return self.parseError(token, "expected version number");
                         };
                         const constraint: Constraint = switch (token.tag) {

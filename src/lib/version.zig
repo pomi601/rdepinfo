@@ -2,13 +2,16 @@ const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 
+/// Represents a four-part version number: major, minor, patch, and
+/// rev.
 pub const Version = extern struct {
     major: u32 = 0,
     minor: u32 = 0,
     patch: u32 = 0,
     rev: u32 = 0,
 
-    pub fn init(string: []const u8) error{InvalidFormat}!Version {
+    /// Parse a string into a Version, or return an error.
+    pub fn parse(string: []const u8) error{InvalidFormat}!Version {
         var major: u32 = 0;
         var minor: u32 = 0;
         var patch: u32 = 0;
@@ -58,6 +61,7 @@ pub const Version = extern struct {
         };
     }
 
+    /// Compare this version to another and return the mathematical order.
     pub fn order(self: Version, other: Version) std.math.Order {
         if (self.major > other.major) return .gt;
         if (self.major < other.major) return .lt;
@@ -68,10 +72,6 @@ pub const Version = extern struct {
         if (self.rev > other.rev) return .gt;
         if (self.rev < other.rev) return .lt;
         return .eq;
-    }
-
-    pub fn eql(self: Version, other: Version) bool {
-        return self.major == other.major and self.minor == other.minor and self.patch == other.patch and self.rev == other.rev;
     }
 
     pub fn format(
@@ -90,6 +90,7 @@ pub const Version = extern struct {
     }
 };
 
+/// Enum to represent numerical ordering.
 pub const Operator = enum(u8) {
     lt,
     lte,
@@ -97,7 +98,8 @@ pub const Operator = enum(u8) {
     gte,
     gt,
 
-    pub fn init(operator: []const u8) error{InvalidFormat}!Operator {
+    /// Parse a string operator into its corresponding enum, or return an error.
+    pub fn parse(operator: []const u8) error{InvalidFormat}!Operator {
         const startsWith = std.mem.startsWith;
         return if (startsWith(u8, operator, "<="))
             .lte
@@ -131,16 +133,20 @@ pub const Operator = enum(u8) {
     }
 };
 
+/// Represents an ordered constraint on a version number.
 pub const VersionConstraint = extern struct {
     operator: Operator = .gte,
     version: Version = .{},
 
+    /// Initialise the struct.
     pub fn init(operator: Operator, version: Version) VersionConstraint {
         return .{ .operator = operator, .version = version };
     }
 
-    pub fn initString(operator: Operator, version: []const u8) !VersionConstraint {
-        return .{ .operator = operator, .version = try Version.init(version) };
+    /// Attempt to parse a string into a version and initialise the
+    /// VersionConstraint struct, or return an error.
+    pub fn parse(operator: Operator, version: []const u8) !VersionConstraint {
+        return .{ .operator = operator, .version = try Version.parse(version) };
     }
 
     /// Return true if other Version satisfies my version constraint.
@@ -155,16 +161,6 @@ pub const VersionConstraint = extern struct {
         }
     }
 
-    pub fn eql(a: VersionConstraint, b: VersionConstraint) bool {
-        return a.operator == b.operator and a.version == b.version;
-    }
-
-    pub fn hash(k: VersionConstraint) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHashStrat(std.hash.Wyhash.init(0), k, .Shallow);
-        return hasher.final();
-    }
-
     pub fn format(
         self: VersionConstraint,
         comptime fmt: []const u8,
@@ -177,6 +173,7 @@ pub const VersionConstraint = extern struct {
     }
 };
 
+/// Represents a name and version constraint.
 pub const NameAndVersionConstraint = struct {
     name: []const u8,
     version_constraint: VersionConstraint = .{},
@@ -204,7 +201,7 @@ pub const NameAndVersionConstraint = struct {
             trim(u8, rest, "()"),
             &std.ascii.whitespace,
         );
-        const constraint = Operator.init(inner) catch {
+        const constraint = Operator.parse(inner) catch {
             // no constraint found
             return .{ .name = name };
         };
@@ -215,17 +212,8 @@ pub const NameAndVersionConstraint = struct {
 
         return .{
             .name = name,
-            .version_constraint = try VersionConstraint.initString(constraint, ver),
+            .version_constraint = try VersionConstraint.parse(constraint, ver),
         };
-    }
-
-    pub fn eql(a: NameAndVersionConstraint, b: NameAndVersionConstraint) bool {
-        return std.mem.eql(u8, a.name, b.name) and VersionConstraint.eql(a.version_constraint, b.version_constraint);
-    }
-    pub fn hash(k: VersionConstraint) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHashStrat(std.hash.Wyhash.init(0), k, .Deep);
-        return hasher.final();
     }
 
     pub fn format(
@@ -240,6 +228,7 @@ pub const NameAndVersionConstraint = struct {
     }
 };
 
+/// Provide equality and hash for an AutoHashMap
 pub const NameAndVersionConstraintContext = struct {
     pub const eql = std.array_hash_map.getAutoEqlFn(
         NameAndVersionConstraint,
@@ -248,6 +237,7 @@ pub const NameAndVersionConstraintContext = struct {
     pub const hash = std.array_hash_map.getAutoHashStratFn(
         NameAndVersionConstraint,
         Self,
+        // we wish to deeply compare the name string
         .Deep,
     );
     const Self = @This();
@@ -286,87 +276,87 @@ test "NameAndVersionConstraint" {
 test "VersionConstraint" {
     const expect = testing.expect;
 
-    const v1 = try VersionConstraint.initString(.gte, "0");
-    try expect(v1.satisfied(try Version.init("1.0")));
-    try expect(v1.satisfied(try Version.init("0.0")));
+    const v1 = try VersionConstraint.parse(.gte, "0");
+    try expect(v1.satisfied(try Version.parse("1.0")));
+    try expect(v1.satisfied(try Version.parse("0.0")));
 
-    const v2 = try VersionConstraint.initString(.gte, "3.2.4");
-    try expect(v2.satisfied(try Version.init("3.2.4")));
-    try expect(v2.satisfied(try Version.init("3.2.5")));
-    try expect(v2.satisfied(try Version.init("3.3.4")));
-    try expect(v2.satisfied(try Version.init("4.0.0")));
-    try expect(!v2.satisfied(try Version.init("3")));
-    try expect(!v2.satisfied(try Version.init("3.2.3")));
-    try expect(!v2.satisfied(try Version.init("3.1.4")));
-    try expect(!v2.satisfied(try Version.init("2.2.4")));
+    const v2 = try VersionConstraint.parse(.gte, "3.2.4");
+    try expect(v2.satisfied(try Version.parse("3.2.4")));
+    try expect(v2.satisfied(try Version.parse("3.2.5")));
+    try expect(v2.satisfied(try Version.parse("3.3.4")));
+    try expect(v2.satisfied(try Version.parse("4.0.0")));
+    try expect(!v2.satisfied(try Version.parse("3")));
+    try expect(!v2.satisfied(try Version.parse("3.2.3")));
+    try expect(!v2.satisfied(try Version.parse("3.1.4")));
+    try expect(!v2.satisfied(try Version.parse("2.2.4")));
 
-    const v3 = try VersionConstraint.initString(.lte, "1.2.3");
-    try expect(v3.satisfied(try Version.init("1.2.3")));
-    try expect(v3.satisfied(try Version.init("1.2.2")));
-    try expect(!v3.satisfied(try Version.init("1.2.4")));
+    const v3 = try VersionConstraint.parse(.lte, "1.2.3");
+    try expect(v3.satisfied(try Version.parse("1.2.3")));
+    try expect(v3.satisfied(try Version.parse("1.2.2")));
+    try expect(!v3.satisfied(try Version.parse("1.2.4")));
 }
 
 test "Version.init" {
     const expectEqual = testing.expectEqual;
     const expectError = testing.expectError;
 
-    const v1 = try Version.init("1.2.3");
+    const v1 = try Version.parse("1.2.3");
     try expectEqual(1, v1.major);
     try expectEqual(2, v1.minor);
     try expectEqual(3, v1.patch);
 
-    const v2 = try Version.init("r1234");
+    const v2 = try Version.parse("r1234");
     try expectEqual(1234, v2.major);
     try expectEqual(0, v2.minor);
     try expectEqual(0, v2.patch);
 
-    const v3 = try Version.init("1");
+    const v3 = try Version.parse("1");
     try expectEqual(1, v3.major);
     try expectEqual(0, v3.minor);
     try expectEqual(0, v3.patch);
 
-    const v4 = try Version.init("1.2");
+    const v4 = try Version.parse("1.2");
     try expectEqual(1, v4.major);
     try expectEqual(2, v4.minor);
     try expectEqual(0, v4.patch);
 
-    const v5 = try Version.init("0.2");
+    const v5 = try Version.parse("0.2");
     try expectEqual(0, v5.major);
     try expectEqual(2, v5.minor);
     try expectEqual(0, v5.patch);
 
-    try expectError(error.InvalidFormat, Version.init("v123"));
-    try expectError(error.InvalidFormat, Version.init("r123.32"));
-    try expectError(error.InvalidFormat, Version.init(".32"));
+    try expectError(error.InvalidFormat, Version.parse("v123"));
+    try expectError(error.InvalidFormat, Version.parse("r123.32"));
+    try expectError(error.InvalidFormat, Version.parse(".32"));
 
-    try expectError(error.InvalidFormat, Version.init("-3.0.4"));
+    try expectError(error.InvalidFormat, Version.parse("-3.0.4"));
 }
 
 test "Version.order" {
     const expectEqual = testing.expectEqual;
 
-    try expectEqual(.gt, (try Version.init("1")).order(try Version.init("0")));
-    try expectEqual(.lt, (try Version.init("0")).order(try Version.init("1")));
-    try expectEqual(.eq, (try Version.init("1")).order(try Version.init("1")));
+    try expectEqual(.gt, (try Version.parse("1")).order(try Version.parse("0")));
+    try expectEqual(.lt, (try Version.parse("0")).order(try Version.parse("1")));
+    try expectEqual(.eq, (try Version.parse("1")).order(try Version.parse("1")));
 
-    try expectEqual(.gt, (try Version.init("1.1")).order(try Version.init("1")));
-    try expectEqual(.gt, (try Version.init("1.1")).order(try Version.init("1.0")));
-    try expectEqual(.gt, (try Version.init("1.1")).order(try Version.init("1.0.1")));
+    try expectEqual(.gt, (try Version.parse("1.1")).order(try Version.parse("1")));
+    try expectEqual(.gt, (try Version.parse("1.1")).order(try Version.parse("1.0")));
+    try expectEqual(.gt, (try Version.parse("1.1")).order(try Version.parse("1.0.1")));
 
-    try expectEqual(.lt, (try Version.init("1.0.0")).order(try Version.init("1.0.1")));
-    try expectEqual(.eq, (try Version.init("1.0.0")).order(try Version.init("1.0.0")));
+    try expectEqual(.lt, (try Version.parse("1.0.0")).order(try Version.parse("1.0.1")));
+    try expectEqual(.eq, (try Version.parse("1.0.0")).order(try Version.parse("1.0.0")));
 
-    try expectEqual(.gt, (try Version.init("1.0.1")).order(try Version.init("1.0.0")));
-    try expectEqual(.lt, (try Version.init("1.0.0")).order(try Version.init("1.0.1")));
-    try expectEqual(.eq, (try Version.init("1.0.0")).order(try Version.init("1.0.0")));
+    try expectEqual(.gt, (try Version.parse("1.0.1")).order(try Version.parse("1.0.0")));
+    try expectEqual(.lt, (try Version.parse("1.0.0")).order(try Version.parse("1.0.1")));
+    try expectEqual(.eq, (try Version.parse("1.0.0")).order(try Version.parse("1.0.0")));
 
-    try expectEqual(.gt, (try Version.init("1.1")).order(try Version.init("1.0.5")));
-    try expectEqual(.lt, (try Version.init("0")).order(try Version.init("1")));
+    try expectEqual(.gt, (try Version.parse("1.1")).order(try Version.parse("1.0.5")));
+    try expectEqual(.lt, (try Version.parse("0")).order(try Version.parse("1")));
 }
 
 test "version with 4 fields" {
     const expectEqual = testing.expectEqual;
-    const v1 = try Version.init("1.2.3-456");
+    const v1 = try Version.parse("1.2.3-456");
     try expectEqual(1, v1.major);
     try expectEqual(2, v1.minor);
     try expectEqual(3, v1.patch);
