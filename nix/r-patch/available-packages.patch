@@ -1,0 +1,75 @@
+diff -ruN R-4.4.1.orig/src/library/utils/R/packages.R R-4.4.1/src/library/utils/R/packages.R
+--- R-4.4.1.orig/src/library/utils/R/packages.R	2024-03-27 12:02:08.000000000 +1300
++++ R-4.4.1/src/library/utils/R/packages.R	2024-09-12 14:53:50.409632039 +1200
+@@ -40,7 +40,7 @@
+     timestamp <- Sys.time()
+ 
+     res <- matrix(NA_character_, 0L, length(fields) + 1L,
+-		  dimnames = list(NULL, c(fields, "Repository")))
++                  dimnames = list(NULL, c(fields, "Repository")))
+ 
+     for(repos in unique(contriburl)) {
+         localcran <- startsWith(repos, "file:")
+@@ -55,10 +55,18 @@
+             } else {
+                 tmpf <- paste0(substring(repos, 6L), "/PACKAGES")
+             }
+-            res0 <- if(file.exists(dest <- paste0(tmpf, ".rds")))
++            res0 <- if(file.exists(dest <- paste0(tmpf, ".rds"))) {
++                 time <- system.time(
+                 readRDS(dest)
+-            else
+-                read.dcf(file = tmpf)
++                )
++                cat("readRDS elapsed ", time["elapsed"], "\n")
++            }
++            else {
++                time <- system.time(
++                    read.dcf(file = tmpf)
++                )
++                cat("read.dcf elapsed ", time["elapsed"], "\n")
++            }
+             if(length(res0))
+                 rownames(res0) <- res0[, "Package"]
+         } else {
+@@ -71,7 +79,11 @@
+                 if(file.exists(dest)) {
+                     age <- difftime(timestamp, file.mtime(dest), units = "secs")
+                     if(isTRUE(age < max_repo_cache_age)) {
++                        time <- system.time(
+                         res0 <- readRDS(dest)
++                        )
++                        cat("readRDS elapsed ", time["elapsed"], "\n")
++
+                         used_dest <- TRUE
+                         ## Be defensive :
+                         if(length(res0))
+@@ -94,7 +106,11 @@
+                 }, error = identity)
+                 options(op)
+                 if(!inherits(z, "error")) {
++                    time <- system.time(
+                     z <- res0 <- tryCatch(readRDS(dest), error = identity)
++                    )
++                    cat("readRDS elapsed ", time["elapsed"], "\n")
++
+                     if(ignore_repo_cache) unlink(dest)
+                 }
+ 
+@@ -122,10 +138,13 @@
+                         }, error = identity)
+                     options(op)
+ 
+-                    if (!inherits(z, "error"))
+-                        z <- res0 <- tryCatch(read.dcf(file = tmpf),
++                    if (!inherits(z, "error")) {
++                       time <- system.time(
++                            z <- res0 <- tryCatch(read.dcf(file = tmpf),
+                                               error = identity)
+-
++                       )
++                       cat("read.dcf elapsed ", time["elapsed"], "\n")
++                    }
+                     unlink(tmpf)
+                     on.exit()
+                 }
