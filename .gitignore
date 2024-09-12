@@ -1,2 +1,5 @@
 .zig-cache/
 zig-out/
+/nix/r-patch/R-4.4.1/
+/nix/r-patch/R-4.4.1.orig/
+/nix/r-patch/outputs/
