@@ -263,6 +263,46 @@ test NameAndVersionConstraintContext {
     try testing.expect(ctx.hash(a) != ctx.hash(c));
 }
 
+pub const NameAndVersionConstraintSortContext = struct {
+    keys: []const NameAndVersionConstraint,
+
+    pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+        const a_navc = ctx.keys[a];
+        const b_navc = ctx.keys[b];
+        const a_name = a_navc.name;
+        const b_name = b_navc.name;
+        const len = @min(a_name.len, b_name.len);
+        for (a_name[0..len], b_name[0..len]) |x, y| {
+            if (x < y) return true;
+            if (x > y) return false;
+        }
+        if (a_name.len < b_name.len) return true;
+
+        const a_ver = a_navc.version_constraint;
+        const b_ver = b_navc.version_constraint;
+        if (a_ver.version.major < b_ver.version.major) return true;
+        if (a_ver.version.major > b_ver.version.major) return false;
+        if (a_ver.version.minor < b_ver.version.minor) return true;
+        if (a_ver.version.minor > b_ver.version.minor) return false;
+        if (a_ver.version.patch < b_ver.version.patch) return true;
+        if (a_ver.version.patch > b_ver.version.patch) return false;
+        if (a_ver.version.rev < b_ver.version.rev) return true;
+        if (a_ver.version.rev > b_ver.version.rev) return false;
+
+        return @intFromEnum(a_ver.operator) < @intFromEnum(b_ver.operator);
+    }
+};
+
+test NameAndVersionConstraintSortContext {
+    const keys: []const NameAndVersionConstraint = &.{
+        .{ .name = "foo" },
+        .{ .name = "bar" },
+    };
+    const ctx = NameAndVersionConstraintSortContext{ .keys = keys };
+
+    try testing.expect(ctx.lessThan(1, 0));
+}
+
 test "NameAndVersionConstraint" {
     const expectEqual = testing.expectEqual;
     const expectEqualStrings = testing.expectEqualStrings;
