@@ -11,8 +11,8 @@ const parse = @import("parse.zig");
 const Parser = parse.Parser;
 
 const version = @import("version.zig");
-const NameAndVersionConstraint = version.NameAndVersionConstraint;
-const Version = version.Version;
+pub const NameAndVersionConstraint = version.NameAndVersionConstraint;
+pub const Version = version.Version;
 
 // dependencies on these packages are not checked
 const base_packages = .{
