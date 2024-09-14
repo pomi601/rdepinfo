@@ -46,6 +46,13 @@ pub fn isRecommendedPackage(name: []const u8) bool {
     return false;
 }
 
+pub const NameAndVersionConstraintHashMap = std.ArrayHashMap(
+    NameAndVersionConstraint,
+    bool,
+    version.NameAndVersionConstraintContext,
+    true,
+);
+
 //
 
 /// Represents a package repository and provides a parser to update
@@ -359,13 +366,6 @@ pub const Repository = struct {
             return result.toOwnedSlice();
         } else return error.NotFound;
     }
-
-    const NameAndVersionConstraintHashMap = std.ArrayHashMap(
-        NameAndVersionConstraint,
-        bool,
-        version.NameAndVersionConstraintContext,
-        true,
-    );
 
     fn doTransitiveDependencies(
         self: Repository,
