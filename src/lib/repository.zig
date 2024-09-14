@@ -391,17 +391,6 @@ pub const Repository = struct {
                 try self.doTransitiveDependencies(arena, p, out);
             } else return error.NotFound;
         }
-
-        // for (package.depends) |x| try out.put(x, true);
-        // for (package.imports) |x| try out.put(x, true);
-        // for (package.linkingTo) |x| try out.put(x, true);
-
-        // const depends = try arena.allocator().dupe(NameAndVersionConstraint, out.keys());
-        // for (depends) |navc| {
-        //     if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
-        //         try self.doTransitiveDependencies(arena, p, out);
-        //     } else return error.NotFound;
-        // }
     }
 
     //
