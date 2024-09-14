@@ -150,7 +150,7 @@ pub const Repository = struct {
     /// Read packages information from provided source. Expects Debian
     /// Control File format, same as R PACKAGES file. Returns number
     /// of packages found.
-    pub fn read(self: *Repository, source: []const u8) !usize {
+    pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
         var count: usize = 0;
         var parser = try parse.Parser.init(self.alloc);
         defer parser.deinit();
@@ -184,7 +184,7 @@ pub const Repository = struct {
         var nav_list = try std.ArrayList(NameAndVersionConstraint).initCapacity(self.alloc, 16);
         defer nav_list.deinit();
 
-        var result: Package = .{};
+        var result: Package = .{ .repository = try self.strings.?.append(name) };
 
         const nodes = parser.nodes.items;
         var idx: usize = 0;
@@ -278,6 +278,7 @@ pub const Repository = struct {
     pub const Package = struct {
         name: []const u8 = "",
         version: Version = .{},
+        repository: []const u8 = "",
         depends: []NameAndVersionConstraint = &.{},
         suggests: []NameAndVersionConstraint = &.{},
         imports: []NameAndVersionConstraint = &.{},
@@ -608,7 +609,7 @@ test "PACKAGES.gz" {
     // read entire repo
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    _ = try repo.read(source.?);
+    _ = try repo.read("test repo", source.?);
     std.debug.print(
         "Parse to Repository ({} packages) = {}ms\n",
         .{ repo.packages.len, @divFloor(timer.lap(), 1_000_000) },
@@ -658,7 +659,7 @@ test "PACKAGES sanity check" {
 
     var repo = try Repository.init(alloc);
     defer repo.deinit();
-    if (source) |s| _ = try repo.read(s);
+    if (source) |s| _ = try repo.read("test", s);
     if (source) |s| alloc.free(s);
 
     var index = try repo.createIndex();
@@ -719,7 +720,7 @@ test "find latest package" {
     {
         var repo = try Repository.init(alloc);
         defer repo.deinit();
-        _ = try repo.read(data1);
+        _ = try repo.read("test", data1);
 
         const package = try repo.findLatestPackage(alloc, .{ .name = "foo" });
         try testing.expectEqualStrings("foo", package.?.name);
@@ -728,10 +729,11 @@ test "find latest package" {
     {
         var repo = try Repository.init(alloc);
         defer repo.deinit();
-        _ = try repo.read(data2);
+        _ = try repo.read("test", data2);
 
         const package = try repo.findLatestPackage(alloc, .{ .name = "foo" });
         try testing.expectEqualStrings("foo", package.?.name);
+        try testing.expectEqualStrings("test", package.?.repository);
         try testing.expectEqual(Version{ .major = 1, .minor = 0, .patch = 2, .rev = 0 }, package.?.version);
     }
 }
@@ -754,7 +756,7 @@ test "transitive dependencies" {
     {
         var repo = try Repository.init(alloc);
         defer repo.deinit();
-        _ = try repo.read(data1);
+        _ = try repo.read("test", data1);
 
         const res = try repo.transitiveDependencies(alloc, .{ .name = "grandchild" });
         defer alloc.free(res);

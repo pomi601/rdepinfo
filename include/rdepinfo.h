@@ -32,7 +32,7 @@ struct NameAndVersionBuffer {
 
 extern void *repo_init();
 extern void repo_deinit(void *repo);
-extern size_t repo_read(void *repo, char *buf, size_t sz);
+extern size_t repo_read(void *repo, char *name_cstr, char *buf, size_t sz);
 
 extern void *repo_index_init(void *repo);
 extern void repo_index_deinit(void *index);

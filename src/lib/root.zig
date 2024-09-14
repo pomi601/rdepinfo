@@ -139,10 +139,10 @@ pub export fn repo_deinit(repo_: ?*anyopaque) void {
 }
 
 /// Read a buffer into the existing repository. Returns the number of packages read.
-pub export fn repo_read(repo_: *anyopaque, buf: [*]u8, sz: usize) usize {
+pub export fn repo_read(repo_: *anyopaque, name: [*:0]u8, buf: [*]u8, sz: usize) usize {
     const repo: *Repository = @ptrCast(@alignCast(repo_));
     const slice = buf[0..sz];
-    const res = repo.read(slice) catch {
+    const res = repo.read(std.mem.span(name), slice) catch {
         if (repo.parse_error) |err| {
             std.debug.print("Parser error: {s}: {}\n", .{ err.message, err.token });
         }
