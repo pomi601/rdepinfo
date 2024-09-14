@@ -321,7 +321,8 @@ pub const Repository = struct {
 
     /// Given a package name, return a slice of its transitive
     /// dependencies. If there is more than one package with the same
-    /// name, select the latest version as the root.
+    /// name, select the latest version as the root. Caller must free
+    /// returned slice.
     pub fn transitiveDependencies(
         self: Repository,
         alloc: Allocator,
@@ -342,7 +343,8 @@ pub const Repository = struct {
     /// Given a package name, return a slice of its transitive
     /// dependencies. If there is more than one package with the same
     /// name, select the latest version as the root. Does not report
-    /// dependencies on base or recommended packages.
+    /// dependencies on base or recommended packages. Caller must free
+    /// returned slice.
     pub fn transitiveDependenciesNoBase(
         self: Repository,
         alloc: Allocator,
@@ -351,13 +353,13 @@ pub const Repository = struct {
         var arena = std.heap.ArenaAllocator.init(alloc);
         defer arena.deinit();
 
-        const out = NameAndVersionConstraintHashMap.init(alloc);
+        var out = NameAndVersionConstraintHashMap.init(alloc);
         defer out.deinit();
 
-        if (self.findLatestPackage(alloc, navc)) |root_package| {
-            try self.doTransitiveDependencies(&arena, &out, root_package);
+        if (try self.findLatestPackage(alloc, navc)) |root_package| {
+            try self.doTransitiveDependencies(&arena, root_package, &out);
 
-            var result = std.ArrayList(NameAndVersionConstraint).initCapacity(alloc, out.items.len);
+            var result = try std.ArrayList(NameAndVersionConstraint).initCapacity(alloc, out.count());
             for (out.keys()) |x| {
                 if (isBasePackage(x.name)) continue;
                 if (isRecommendedPackage(x.name)) continue;
@@ -748,6 +750,19 @@ test "transitive dependencies" {
         _ = try repo.read("test", data1);
 
         const res = try repo.transitiveDependencies(alloc, .{ .name = "grandchild" });
+        defer alloc.free(res);
+
+        try testing.expectEqualDeep(
+            res[0],
+            NameAndVersionConstraint{ .name = "child", .version_constraint = try version.VersionConstraint.parse(.gte, "1.0") },
+        );
+    }
+    {
+        var repo = try Repository.init(alloc);
+        defer repo.deinit();
+        _ = try repo.read("test", data1);
+
+        const res = try repo.transitiveDependenciesNoBase(alloc, .{ .name = "grandchild" });
         defer alloc.free(res);
 
         try testing.expectEqualDeep(
