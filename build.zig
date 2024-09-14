@@ -91,11 +91,13 @@ pub fn build(b: *std.Build) !void {
 
     // -- begin module -------------------------------------------------------
 
-    _ = b.addModule("rdepinfo", .{
+    const mod = b.addModule("rdepinfo", .{
         .root_source_file = b.path("src/lib/repository.zig"),
         .target = target,
         .optimize = optimize,
     });
+    mod.addImport("mos", mos);
+    mod.addImport("stable_list", stable_list);
 
     // -- end module ---------------------------------------------------------
 
