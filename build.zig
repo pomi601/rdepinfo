@@ -71,7 +71,7 @@ pub fn build(b: *std.Build) !void {
         });
         lib.root_module.addImport("mos", mos);
         lib.root_module.addImport("stable_list", stable_list);
-        lib.linkSystemLibrary("c");
+        lib.linkLibC();
 
         // just take the first one, it doesn't matter
         if (lib_for_docs == null) lib_for_docs = lib;
@@ -87,7 +87,17 @@ pub fn build(b: *std.Build) !void {
         b.getInstallStep().dependOn(&target_out.step);
     }
 
-    // -- end C static library -------------------------------------------------
+    // -- end C static library -----------------------------------------------
+
+    // -- begin module -------------------------------------------------------
+
+    _ = b.addModule("rdepinfo", .{
+        .root_source_file = b.path("src/lib/repository.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // -- end module ---------------------------------------------------------
 
     // -- begin check --------------------------------------------------------
     const exe_check = b.addExecutable(.{
@@ -124,6 +134,7 @@ pub fn build(b: *std.Build) !void {
     });
     lib_unit_tests.root_module.addImport("stable_list", stable_list);
     lib_unit_tests.root_module.addImport("mos", mos);
+    lib_unit_tests.linkLibC();
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
