@@ -376,22 +376,37 @@ pub const Repository = struct {
         out: *NameAndVersionConstraintHashMap,
     ) !void {
         for (package.depends) |navc| {
+            if (isBasePackage(navc.name)) continue;
+            if (isRecommendedPackage(navc.name)) continue;
             if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
                 try out.put(navc, true);
                 try self.doTransitiveDependencies(arena, p, out);
-            } else return error.NotFound;
+            } else {
+                std.debug.print("package {s} dependency not found: {}\n", .{ package.name, navc });
+                return error.NotFound;
+            }
         }
         for (package.imports) |navc| {
+            if (isBasePackage(navc.name)) continue;
+            if (isRecommendedPackage(navc.name)) continue;
             if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
                 try out.put(navc, true);
                 try self.doTransitiveDependencies(arena, p, out);
-            } else return error.NotFound;
+            } else {
+                std.debug.print("package {s} dependency not found: {}\n", .{ package.name, navc });
+                return error.NotFound;
+            }
         }
         for (package.linkingTo) |navc| {
+            if (isBasePackage(navc.name)) continue;
+            if (isRecommendedPackage(navc.name)) continue;
             if (try self.findLatestPackage(arena.allocator(), navc)) |p| {
                 try out.put(navc, true);
                 try self.doTransitiveDependencies(arena, p, out);
-            } else return error.NotFound;
+            } else {
+                std.debug.print("package {s} dependency not found: {}\n", .{ package.name, navc });
+                return error.NotFound;
+            }
         }
     }
 
@@ -639,6 +654,9 @@ test "PACKAGES.gz" {
     try testing.expectEqual(1, index.items.get("AalenJohansen").?.single.version.major);
     try testing.expectEqual(2, index.items.get("AATtools").?.single.index);
     try testing.expectEqual(0, index.items.get("AATtools").?.single.version.major);
+
+    const jsonlite = try repo.findLatestPackage(alloc, .{ .name = "jsonlite" });
+    try testing.expect(jsonlite != null);
 }
 
 test "PACKAGES sanity check" {
