@@ -230,10 +230,12 @@ pub const NameAndVersionConstraint = struct {
 
 /// Provide equality and hash for an AutoHashMap
 pub const NameAndVersionConstraintContext = struct {
-    pub const eql = std.array_hash_map.getAutoEqlFn(
-        NameAndVersionConstraint,
-        Self,
-    );
+    pub fn eql(_: Self, a: NameAndVersionConstraint, b: NameAndVersionConstraint, _: usize) bool {
+        if (!std.meta.eql(a.version_constraint, b.version_constraint)) return false;
+        if (!std.mem.eql(u8, a.name, b.name)) return false;
+        return true;
+    }
+
     pub const hash = std.array_hash_map.getAutoHashStratFn(
         NameAndVersionConstraint,
         Self,
@@ -242,6 +244,24 @@ pub const NameAndVersionConstraintContext = struct {
     );
     const Self = @This();
 };
+
+test NameAndVersionConstraintContext {
+    const ctx = NameAndVersionConstraintContext{};
+
+    const a = NameAndVersionConstraint{ .name = "foo" };
+    const b = NameAndVersionConstraint{ .name = "foo" };
+    const c = NameAndVersionConstraint{ .name = "bar" };
+
+    try testing.expect(ctx.eql(a, a, 0));
+    try testing.expect(ctx.eql(a, b, 0));
+    try testing.expect(ctx.eql(b, a, 0));
+    try testing.expectEqual(ctx.hash(a), ctx.hash(a));
+    try testing.expectEqual(ctx.hash(a), ctx.hash(b));
+
+    try testing.expect(!ctx.eql(a, c, 0));
+    try testing.expect(!ctx.eql(c, a, 0));
+    try testing.expect(ctx.hash(a) != ctx.hash(c));
+}
 
 test "NameAndVersionConstraint" {
     const expectEqual = testing.expectEqual;
