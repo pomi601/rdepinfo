@@ -209,6 +209,8 @@ pub const Repository = struct {
                         result.name = try parsePackageName(nodes, &idx, &self.strings.?);
                     } else if (mos.streql("Version", field.name)) {
                         result.version = try parsePackageVersion(nodes, &idx);
+                        idx -= 1; // backtrack
+                        result.version_string = try parsePackageVersionString(nodes, &idx, &self.strings.?);
                     } else if (mos.streql("Depends", field.name)) {
                         try parsePackages(nodes, &idx, &nav_list);
                         result.depends = try nav_list.toOwnedSlice();
@@ -252,6 +254,17 @@ pub const Repository = struct {
         }
     }
 
+    fn parsePackageVersionString(nodes: []Parser.Node, idx: *usize, strings: *StringStorage) ![]const u8 {
+        idx.* += 1;
+        switch (nodes[idx.*]) {
+            .string_node => |s| {
+                return try strings.append(s.value);
+            },
+            // expect .string_node immediately after .field for a Version field
+            else => unreachable,
+        }
+    }
+
     fn parsePackages(
         nodes: []Parser.Node,
         idx: *usize,
@@ -280,6 +293,7 @@ pub const Repository = struct {
     pub const Package = struct {
         name: []const u8 = "",
         version: Version = .{},
+        version_string: []const u8 = "",
         repository: []const u8 = "",
         depends: []NameAndVersionConstraint = &.{},
         suggests: []NameAndVersionConstraint = &.{},
@@ -641,6 +655,8 @@ test "PACKAGES.gz" {
     // Version: 1.0.0
     try testing.expectEqualStrings("A3", repo.packages.items(.name)[0]);
     try testing.expectEqual(1, repo.packages.items(.version)[0].major);
+    try testing.expectEqualStrings("1.0.0", repo.packages.items(.version_string)[0]);
+
     try testing.expectEqualStrings("AalenJohansen", repo.packages.items(.name)[1]);
     try testing.expectEqual(1, repo.packages.items(.version)[1].major);
     try testing.expectEqualStrings("AATtools", repo.packages.items(.name)[2]);
