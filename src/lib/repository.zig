@@ -186,7 +186,8 @@ pub const Repository = struct {
         var nav_list = try std.ArrayList(NameAndVersionConstraint).initCapacity(self.alloc, 16);
         defer nav_list.deinit();
 
-        var result: Package = .{ .repository = try self.strings.?.append(name) };
+        const empty_package: Package = .{ .repository = try self.strings.?.append(name) };
+        var result = empty_package;
 
         const nodes = parser.nodes.items;
         var idx: usize = 0;
@@ -199,7 +200,7 @@ pub const Repository = struct {
 
                 .stanza_end => {
                     try self.packages.append(self.alloc, result);
-                    result = .{};
+                    result = empty_package;
                     nav_list.clearRetainingCapacity();
                     count += 1;
                 },
