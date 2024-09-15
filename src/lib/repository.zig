@@ -509,6 +509,20 @@ pub const Repository = struct {
             self.* = undefined;
         }
 
+        /// Return index into repository packages for a package which
+        /// matches the requested constraint, or null.
+        pub fn findPackage(self: Index, package: NameAndVersionConstraint) ?usize {
+            return if (self.items.get(package.name)) |entry| switch (entry) {
+                .single => |e| if (package.version_constraint.satisfied(e.version)) e.index else null,
+                .multiple => |es| b: {
+                    for (es.items) |e| {
+                        if (package.version_constraint.satisfied(e.version)) break :b e.index;
+                    }
+                    break :b null;
+                },
+            } else null;
+        }
+
         /// Given a slice of required packages, return a slice of missing dependencies, if any.
         pub fn unsatisfied(
             self: Index,
@@ -739,6 +753,31 @@ test "find latest package" {
         try testing.expectEqualStrings("foo", package.?.name);
         try testing.expectEqualStrings("test", package.?.repository);
         try testing.expectEqual(Version{ .major = 1, .minor = 0, .patch = 2, .rev = 0 }, package.?.version);
+    }
+
+    {
+        var repo = try Repository.init(alloc);
+        defer repo.deinit();
+        _ = try repo.read("test", data2);
+        var index = try repo.createIndex();
+        defer index.deinit();
+
+        const package_index = index.findPackage(NameAndVersionConstraint{ .name = "foo", .version_constraint = .{
+            .operator = .gt,
+            .version = .{
+                .major = 1,
+                .patch = 1,
+            },
+        } });
+        try testing.expectEqual(0, package_index.?);
+
+        try testing.expectEqual(null, index.findPackage(NameAndVersionConstraint{ .name = "foo", .version_constraint = .{
+            .operator = .gt,
+            .version = .{
+                .major = 1,
+                .patch = 2,
+            },
+        } }));
     }
 }
 
