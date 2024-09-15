@@ -228,6 +228,195 @@ pub const NameAndVersionConstraint = struct {
     }
 };
 
+pub const NameAndVersionConstraintHashMap = std.ArrayHashMap(
+    NameAndVersionConstraint,
+    bool,
+    NameAndVersionConstraintContext,
+    true,
+);
+
+/// Given a slice of constraints, attempt to merge them according to
+/// our internal merge table. If a constraint violation is found,
+/// returns error.NoIntersection. Caller must free returned slice.
+/// Note: does not support two sided inequalities, this is for future
+/// work (TODO).
+pub fn mergeNameAndVersionConstraints(
+    alloc: std.mem.Allocator,
+    in: []const NameAndVersionConstraint,
+) error{ OutOfMemory, NoIntersection }![]NameAndVersionConstraint {
+    var seen = try std.ArrayList(NameAndVersionConstraint).initCapacity(alloc, in.len);
+
+    outer: for (in) |navc| {
+        for (seen.items) |*existing| {
+            if (std.mem.eql(u8, navc.name, existing.name)) {
+                if (mergeVersionConstraints(navc.version_constraint, existing.version_constraint)) |merged| {
+                    existing.*.version_constraint = merged;
+                } else {
+                    return error.NoIntersection;
+                }
+                continue :outer;
+            }
+        }
+
+        seen.appendAssumeCapacity(navc);
+    }
+
+    seen.shrinkAndFree(seen.items.len);
+    return seen.toOwnedSlice();
+}
+
+// merge table
+
+// zig fmt: off
+const MergeOp = enum {
+    o,                          // null
+    two,                        // null, TODO: implement two-sided constraints
+    lhs,                        // take left hand side
+    rhs,                        // take right hand side
+    eq_lhs,                     // new constraint .eq version of lhs
+};
+
+const MergeTableOrder = enum(usize) { lt, lte, eq, gte, gt };
+
+// order compares lhs ? rhs.
+const MergeOpOrder = enum(usize) {
+    lt,                         // rhs < lhs
+    eq,                         // rhs = lhs
+    gt,                         // rhs > lhs
+};
+
+const MergeTable: [5][5][3]MergeOp = .{
+    // lhs <
+    .{
+        .{.lhs, .lhs, .rhs },   // rhs <
+        .{ .lhs, .lhs, .rhs },  // rhs <=
+        .{ .o, .o, .rhs },      // rhs =
+        .{ .o, .o, .two },      // rhs >=
+        .{ .o, .o, .two },      // rhs >
+    },
+
+    // lhs <=
+    .{
+        .{ .lhs, .rhs, .rhs },  // rhs <
+        .{ .lhs, .lhs, .rhs },  // rhs <=
+        .{ .o, .rhs, .rhs },    // rhs =
+        .{ .o, .eq_lhs, .two }, // rhs >=
+        .{ .o, .o, .two },      // rhs >
+    },
+
+    // lhs =
+    .{
+        .{ .lhs, .o, .o },      // rhs <
+        .{ .lhs, .lhs, .o },    // rhs <=
+        .{ .o, .lhs, .o },      // rhs =
+        .{ .o, .lhs, .lhs },    // rhs >=
+        .{ .o, .o, .lhs },      // rhs >
+    },
+
+    // lhs >=
+    .{
+        .{ .two, .o, .o },      // rhs <
+        .{ .two, .eq_lhs, .o }, // rhs <=
+        .{ .rhs, .rhs, .o },    // rhs =
+        .{ .rhs, .lhs, .lhs },  // rhs >=
+        .{ .rhs, .rhs, .lhs },  // rhs >
+    },
+
+    // lhs >
+    .{
+        .{ .two, .o, .o },      // rhs <
+        .{ .two, .o, .o },      // rhs <=
+        .{ .rhs, .o, .o },      // rhs =
+        .{ .rhs, .lhs, .lhs },  // rhs >=
+        .{ .rhs, .lhs, .lhs },  // rhs >
+    },
+};
+// zig fmt: on
+
+fn operatorToTableIndex(op: Operator) usize {
+    return switch (op) {
+        .lt => @intFromEnum(MergeTableOrder.lt),
+        .lte => @intFromEnum(MergeTableOrder.lte),
+        .eq => @intFromEnum(MergeTableOrder.eq),
+        .gte => @intFromEnum(MergeTableOrder.gte),
+        .gt => @intFromEnum(MergeTableOrder.gt),
+    };
+}
+
+/// Merge two version constraints if possible. Returns null otherwise.
+fn mergeVersionConstraints(a: VersionConstraint, b: VersionConstraint) ?VersionConstraint {
+    const row = operatorToTableIndex(a.operator);
+    const col = operatorToTableIndex(b.operator);
+    const order = switch (a.version.order(b.version)) {
+        .lt => @intFromEnum(MergeOpOrder.lt),
+        .eq => @intFromEnum(MergeOpOrder.eq),
+        .gt => @intFromEnum(MergeOpOrder.gt),
+    };
+
+    return switch (MergeTable[row][col][order]) {
+        .o => null,
+        .two => null, // TODO: implement two-sided constraints
+        .lhs => a,
+        .rhs => b,
+        .eq_lhs => VersionConstraint{ .operator = .eq, .version = a.version },
+    };
+}
+
+const MergeTestTable = .{};
+
+test mergeVersionConstraints {
+    const expectEqual = testing.expectEqual;
+
+    const one = Version{ .major = 1 };
+    const five = Version{ .major = 5 };
+    const six = Version{ .major = 6 };
+
+    const a = VersionConstraint{ .operator = .lt, .version = five };
+    var op = Operator.lt;
+    var b = VersionConstraint{ .operator = op, .version = one };
+
+    op = Operator.lt;
+    b = VersionConstraint{ .operator = op, .version = one };
+    try expectEqual(b, mergeVersionConstraints(a, b));
+    b = VersionConstraint{ .operator = op, .version = five };
+    try expectEqual(a, mergeVersionConstraints(a, b));
+    b = VersionConstraint{ .operator = op, .version = six };
+    try expectEqual(a, mergeVersionConstraints(a, b));
+
+    // no more tests as we're just testing that MergeTable is as we
+    // expect it to be.
+}
+
+test mergeNameAndVersionConstraints {
+    const expectEqual = testing.expectEqual;
+    const alloc = std.testing.allocator;
+
+    const in = [_]NameAndVersionConstraint{
+        .{
+            .name = "foo",
+            .version_constraint = .{},
+        },
+        .{
+            .name = "bar",
+            .version_constraint = .{ .version = .{ .major = 5 } },
+        },
+        .{
+            .name = "foo",
+            .version_constraint = .{ .operator = .eq, .version = .{ .major = 5 } },
+        },
+    };
+
+    const out = try mergeNameAndVersionConstraints(alloc, &in);
+    defer alloc.free(out);
+
+    try expectEqual(2, out.len);
+    for (out) |x| {
+        if (std.mem.eql(u8, "foo", x.name)) {
+            try expectEqual(VersionConstraint{ .operator = .eq, .version = .{ .major = 5 } }, x.version_constraint);
+        }
+    }
+}
+
 /// Provide equality and hash for an AutoHashMap
 pub const NameAndVersionConstraintContext = struct {
     pub fn eql(_: Self, a: NameAndVersionConstraint, b: NameAndVersionConstraint, _: usize) bool {
@@ -280,16 +469,14 @@ pub const NameAndVersionConstraintSortContext = struct {
 
         const a_ver = a_navc.version_constraint;
         const b_ver = b_navc.version_constraint;
-        if (a_ver.version.major < b_ver.version.major) return true;
-        if (a_ver.version.major > b_ver.version.major) return false;
-        if (a_ver.version.minor < b_ver.version.minor) return true;
-        if (a_ver.version.minor > b_ver.version.minor) return false;
-        if (a_ver.version.patch < b_ver.version.patch) return true;
-        if (a_ver.version.patch > b_ver.version.patch) return false;
-        if (a_ver.version.rev < b_ver.version.rev) return true;
-        if (a_ver.version.rev > b_ver.version.rev) return false;
-
-        return @intFromEnum(a_ver.operator) < @intFromEnum(b_ver.operator);
+        const order = a_ver.version.order(b_ver.version);
+        switch (order) {
+            .lt => return true,
+            .gt => return false,
+            .eq => {
+                return @intFromEnum(a_ver.operator) < @intFromEnum(b_ver.operator);
+            },
+        }
     }
 };
 

@@ -223,7 +223,7 @@ const Program = struct {
 
             if (source_) |source| {
                 try self.log("Reading file {s}...", .{path});
-                const count = self.repo.read(source) catch |err| switch (err) {
+                const count = self.repo.read(path, source) catch |err| switch (err) {
                     error.InvalidState => |e| {
                         try stderr.print("INTERNAL ERROR: Invalid state. (Sorry.)\n", .{});
                         return e;

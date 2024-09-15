@@ -10,10 +10,11 @@ const StringStorage = stable_list.IndexedStringStorage;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
 
-const version = @import("version.zig");
-pub const NameAndVersionConstraint = version.NameAndVersionConstraint;
-pub const Version = version.Version;
-pub const NameAndVersionConstraintSortContext = version.NameAndVersionConstraintSortContext;
+pub const version = @import("version.zig");
+
+const NameAndVersionConstraint = version.NameAndVersionConstraint;
+const Version = version.Version;
+const NameAndVersionConstraintHashMap = version.NameAndVersionConstraintHashMap;
 
 // dependencies on these packages are not checked
 const base_packages = .{
@@ -46,13 +47,6 @@ pub fn isRecommendedPackage(name: []const u8) bool {
     }
     return false;
 }
-
-pub const NameAndVersionConstraintHashMap = std.ArrayHashMap(
-    NameAndVersionConstraint,
-    bool,
-    version.NameAndVersionConstraintContext,
-    true,
-);
 
 //
 
