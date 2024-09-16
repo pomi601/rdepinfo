@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const Hash = std.crypto.hash.sha2.Sha256;
 const Mutex = std.Thread.Mutex;
 
-const common = @import("common");
+const common = @import("./common/root.zig");
 const config_json = common.config_json;
 const download = common.download;
 
