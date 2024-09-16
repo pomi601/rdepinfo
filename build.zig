@@ -30,6 +30,23 @@ fn build_fetch_assets(b: *Build, target: ResolvedTarget, optimize: OptimizeMode)
     return exe;
 }
 
+fn build_download_file(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) *Compile {
+    const exe = b.addExecutable(.{
+        .name = "download-file",
+        .root_source_file = b.path("src/exe/download-file//main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const common = b.dependency("common", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("common");
+
+    exe.root_module.addImport("common", common);
+    return exe;
+}
+
 pub fn build(b: *Build) !void {
     // -- begin options ------------------------------------------------------
     const target = b.standardTargetOptions(.{});
@@ -128,6 +145,10 @@ pub fn build(b: *Build) !void {
     const fetch_assets = build_fetch_assets(b, target, optimize);
     b.installArtifact(fetch_assets);
     b.getInstallStep().dependOn(&fetch_assets.step);
+
+    const download_file = build_download_file(b, target, optimize);
+    b.installArtifact(download_file);
+    b.getInstallStep().dependOn(&download_file.step);
 
     // -- end tools ----------------------------------------------------------
 

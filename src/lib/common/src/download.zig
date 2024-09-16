@@ -3,6 +3,7 @@ const std = @import("std");
 /// Allocator must be thread-safe.
 pub fn downloadFile(alloc: std.mem.Allocator, url: []const u8, out_path: []const u8) !void {
     var client = std.http.Client{ .allocator = alloc };
+    try client.initDefaultProxies(alloc);
 
     var header_buffer: [16 * 1024]u8 = undefined;
     var buf: [16 * 1024]u8 = undefined;

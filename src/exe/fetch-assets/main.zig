@@ -114,8 +114,7 @@ fn downloadOne(
     };
 
     download.downloadFile(arena.allocator(), asset.url, out_path) catch |err| {
-        std.debug.print("ERROR: download of '{s}' failed: {s}\n", .{ asset.url, @errorName(err) });
-        std.process.exit(1);
+        fatal("ERROR: download of '{s}' failed: {s}\n", .{ asset.url, @errorName(err) });
     };
 
     hashOne(
