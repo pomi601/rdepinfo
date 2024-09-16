@@ -13,7 +13,7 @@ const targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .x86_64, .os_tag = .windows },
 };
 
-pub fn build_fetch_assets(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) *Compile {
+fn build_fetch_assets(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) *Compile {
     const exe = b.addExecutable(.{
         .name = "fetch-assets",
         .root_source_file = b.path("src/exe/fetch-assets/main.zig"),
