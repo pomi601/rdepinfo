@@ -14,6 +14,7 @@ const common = @import("common");
 const config_json = common.config_json;
 const download = common.download;
 
+const Assets = config_json.Assets;
 const Config = config_json.Config;
 const Repository = rdepinfo.Repository;
 
@@ -213,11 +214,16 @@ fn calculateDependencies(alloc: Allocator, packages: Repository, cloud: Reposito
 }
 
 /// Requires thread-safe allocator.
-fn checkAndCreateAssets(alloc: Allocator, packages: []NAVC, cloud: Repository) !config_json.Assets {
+fn checkAndCreateAssets(
+    alloc: Allocator,
+    packages: []NAVC,
+    cloud: Repository,
+    assets_orig: Assets,
+) !Assets {
     const cloud_index = try cloud.createIndex();
 
     // find the source
-    var assets = config_json.Assets{};
+    var assets = Assets{};
     var lock = std.Thread.Mutex{};
 
     var pool: std.Thread.Pool = undefined;
@@ -229,7 +235,7 @@ fn checkAndCreateAssets(alloc: Allocator, packages: []NAVC, cloud: Repository) !
         pool.spawnWg(
             &wg,
             &checkAndAddOnePackage,
-            .{ alloc, navc, cloud, cloud_index, &assets, &lock },
+            .{ alloc, navc, cloud, cloud_index, &assets, assets_orig, &lock },
         );
     }
     pool.waitAndWork(&wg);
@@ -249,7 +255,8 @@ fn checkAndAddOnePackage(
     package: NAVC,
     cloud: Repository,
     index: Repository.Index,
-    assets: *config_json.Assets,
+    assets: *Assets,
+    assets_orig: Assets,
     lock: *Mutex,
 ) void {
     if (index.findPackage(package)) |found| {
@@ -271,18 +278,33 @@ fn checkAndAddOnePackage(
         if (download.headOk(alloc, url1) catch false) {
             lock.lock();
             defer lock.unlock();
-            assets.map.put(alloc, package.name, .{ .url = url1 }) catch @panic("OOM");
+            updateAssetEntry(alloc, package.name, url1, assets, assets_orig);
         } else if (download.headOk(alloc, url2) catch false) {
             lock.lock();
             defer lock.unlock();
-            assets.map.put(alloc, package.name, .{ .url = url2 }) catch @panic("OOM");
+            updateAssetEntry(alloc, package.name, url2, assets, assets_orig);
         } else {
             fatal("ERROR: NOT FOUND: {s}\nNOT FOUND: {s}\n", .{ url1, url2 });
         }
     }
 }
 
-fn writeAssets(alloc: std.mem.Allocator, path: []const u8, assets: config_json.Assets) !void {
+fn updateAssetEntry(
+    alloc: Allocator,
+    name: []const u8,
+    url: []const u8,
+    assets: *Assets,
+    orig_assets: Assets,
+) void {
+    if (orig_assets.map.get(name)) |orig| {
+        if (std.mem.eql(u8, orig.url, url))
+            return;
+    }
+
+    assets.map.put(alloc, name, .{ .url = url }) catch @panic("OOM");
+}
+
+fn writeAssets(alloc: Allocator, path: []const u8, assets: Assets) !void {
     var root = try config_json.readConfigRoot(alloc, path);
     root.assets = assets;
     const config_file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
@@ -290,6 +312,8 @@ fn writeAssets(alloc: std.mem.Allocator, path: []const u8, assets: config_json.A
     try std.json.stringify(root, .{ .whitespace = .indent_2 }, config_file.writer());
     std.debug.print("\nWrote {s}\n", .{path});
 }
+
+// fn writeBuildRules(alloc: Allocator, packages: Repository, cloud: Repository) !void {}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -310,6 +334,7 @@ pub fn main() !void {
         fatal("ERROR: failed to read config file '{s}': {s}", .{ config_path, @errorName(err) });
     };
     const repos = config.@"update-deps".repos;
+    const assets_orig = config.assets;
 
     // this requires a threadsafe allocator
     const repositories = readRepositories(alloc, repos, out_dir_path) catch |err| {
@@ -321,7 +346,7 @@ pub fn main() !void {
         fatal("ERROR: failed to calculate dependencies: {s}\n", .{@errorName(err)});
     };
 
-    const assets = checkAndCreateAssets(alloc, merged, repositories) catch |err| {
+    const assets = checkAndCreateAssets(alloc, merged, repositories, assets_orig) catch |err| {
         fatal("ERROR: failed to check and create assets: {s}\n", .{@errorName(err)});
     };
     try writeAssets(alloc, config_path, assets);
