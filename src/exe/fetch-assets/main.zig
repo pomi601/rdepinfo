@@ -24,22 +24,25 @@ fn hashOne(
     config_path: []const u8,
     config_mutex: *Mutex,
 ) void {
-    const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
-        fatal("ERROR: could not open file '{s}': {s}\n", .{ file_path, @errorName(err) });
-    };
-    defer file.close();
-
-    // hash the file
-    var buf: [std.mem.page_size]u8 = undefined;
-    var hasher = Hash.init(.{});
-    while (true) {
-        const n = file.read(&buf) catch |err| {
-            fatal("ERROR: read error on file '{s}': {s}\n", .{ file_path, @errorName(err) });
+    const hash = blk: {
+        const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
+            fatal("ERROR: could not open file '{s}': {s}\n", .{ file_path, @errorName(err) });
         };
-        if (n == 0) break;
-        hasher.update(buf[0..n]);
-    }
-    const hash = hasher.finalResult();
+        defer file.close();
+
+        // hash the file
+        var buf: [std.mem.page_size]u8 = undefined;
+        var hasher = Hash.init(.{});
+        while (true) {
+            const n = file.read(&buf) catch |err| {
+                file.close();
+                fatal("ERROR: read error on file '{s}': {s}\n", .{ file_path, @errorName(err) });
+            };
+            if (n == 0) break;
+            hasher.update(buf[0..n]);
+        }
+        break :blk hasher.finalResult();
+    };
 
     // compare to expected, or write to config file if expected is blank
     if (asset.hash.len != 0) {
@@ -74,15 +77,20 @@ fn hashOne(
             });
         };
 
-        const config_file = std.fs.cwd().openFile(config_path, .{ .mode = .write_only }) catch |err| {
+        const config_file = std.fs.cwd().openFile(config_path, .{
+            .mode = .write_only,
+            .lock = .exclusive,
+        }) catch |err| {
             fatal("ERROR: cannot open config file '{s}': {s}\n", .{ config_path, @errorName(err) });
         };
         defer config_file.close();
+
         std.json.stringify(
             config_root,
             .{ .whitespace = .indent_2 },
             config_file.writer(),
         ) catch |err| {
+            config_file.close();
             fatal("ERROR: could not stringify to JSON: {s}\n", .{@errorName(err)});
         };
 
