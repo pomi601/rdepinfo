@@ -160,6 +160,8 @@ pub fn main() !void {
             );
         }
     }
+
+    pool.waitAndWork(&wg);
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
