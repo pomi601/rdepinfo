@@ -306,16 +306,24 @@ pub fn main() !void {
     const config_path = args[1];
     const out_dir_path = args[2];
 
-    const config = try config_json.readConfigRoot(alloc, config_path);
+    const config = config_json.readConfigRoot(alloc, config_path) catch |err| {
+        fatal("ERROR: failed to read config file '{s}': {s}", .{ config_path, @errorName(err) });
+    };
     const repos = config.@"update-deps".repos;
 
     // this requires a threadsafe allocator
-    const repositories = try readRepositories(alloc, repos, out_dir_path);
+    const repositories = readRepositories(alloc, repos, out_dir_path) catch |err| {
+        fatal("ERROR: failed to download/read repositories: {s}\n", .{@errorName(err)});
+    };
 
     const packages = readPackageDirs(alloc, args[3..args.len]);
-    const merged = try calculateDependencies(alloc, packages, repositories);
+    const merged = calculateDependencies(alloc, packages, repositories) catch |err| {
+        fatal("ERROR: failed to calculate dependencies: {s}\n", .{@errorName(err)});
+    };
 
-    const assets = try checkAndCreateAssets(alloc, merged, repositories);
+    const assets = checkAndCreateAssets(alloc, merged, repositories) catch |err| {
+        fatal("ERROR: failed to check and create assets: {s}\n", .{@errorName(err)});
+    };
     try writeAssets(alloc, config_path, assets);
 }
 
