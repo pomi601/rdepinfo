@@ -1,5 +1,10 @@
 const std = @import("std");
 
+const Build = std.Build;
+const Compile = std.Build.Step.Compile;
+const ResolvedTarget = Build.ResolvedTarget;
+const OptimizeMode = std.builtin.OptimizeMode;
+
 const targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .aarch64, .os_tag = .macos },
     .{ .cpu_arch = .aarch64, .os_tag = .linux },
@@ -8,7 +13,24 @@ const targets: []const std.Target.Query = &.{
     .{ .cpu_arch = .x86_64, .os_tag = .windows },
 };
 
-pub fn build(b: *std.Build) !void {
+pub fn build_fetch_assets(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) *Compile {
+    const exe = b.addExecutable(.{
+        .name = "fetch-assets",
+        .root_source_file = b.path("src/exe/fetch-assets/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const common = b.dependency("common", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("common");
+
+    exe.root_module.addImport("common", common);
+    return exe;
+}
+
+pub fn build(b: *Build) !void {
     // -- begin options ------------------------------------------------------
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -101,9 +123,17 @@ pub fn build(b: *std.Build) !void {
 
     // -- end module ---------------------------------------------------------
 
+    // -- begin tools --------------------------------------------------------
+
+    const fetch_assets = build_fetch_assets(b, target, optimize);
+    b.installArtifact(fetch_assets);
+    b.getInstallStep().dependOn(&fetch_assets.step);
+
+    // -- end tools ----------------------------------------------------------
+
     // -- begin check --------------------------------------------------------
     const exe_check = b.addExecutable(.{
-        .name = "rdepinfo_check",
+        .name = "rdepinfo",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -114,6 +144,7 @@ pub fn build(b: *std.Build) !void {
 
     const check = b.step("check", "Check if rdepinfo compiles");
     check.dependOn(&exe_check.step);
+    check.dependOn(&fetch_assets.step);
     // -- end check ----------------------------------------------------------
 
     // -- begin run ----------------------------------------------------------
