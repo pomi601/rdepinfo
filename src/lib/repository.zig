@@ -420,6 +420,76 @@ pub const Repository = struct {
         }
     }
 
+    /// Caller must free returned slice.
+    pub fn calculateInstallationOrder(
+        self: Repository,
+        packages: []Package,
+        comptime options: struct {
+            max_iterations: usize = 1024,
+        },
+    ) ![]Package {
+        var out = try std.ArrayList(Package).initCapacity(self.alloc, packages.len);
+        out.appendSliceAssumeCapacity(packages);
+
+        // earliest position a package is referenced
+        var seen = std.StringArrayHashMap(usize).init(self.alloc);
+
+        var pos: usize = 0;
+        for (out.items) |p| {
+            for (p.depends) |x| {
+                if (isBasePackage(x.name)) continue;
+                if (isRecommendedPackage(x.name)) continue;
+                std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+                const gop = try seen.getOrPut(x.name);
+                if (!gop.found_existing or gop.value_ptr.* > pos)
+                    gop.value_ptr.* = pos;
+            }
+            for (p.imports) |x| {
+                if (isBasePackage(x.name)) continue;
+                if (isRecommendedPackage(x.name)) continue;
+                std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+                const gop = try seen.getOrPut(x.name);
+                if (!gop.found_existing or gop.value_ptr.* > pos)
+                    gop.value_ptr.* = pos;
+            }
+            for (p.linkingTo) |x| {
+                if (isBasePackage(x.name)) continue;
+                if (isRecommendedPackage(x.name)) continue;
+                std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+                const gop = try seen.getOrPut(x.name);
+                if (!gop.found_existing or gop.value_ptr.* > pos)
+                    gop.value_ptr.* = pos;
+            }
+            pos += 1;
+        }
+
+        // shuffle packages when we find their current position is
+        // after their earliest seen position.
+        var iterations: usize = 0;
+        while (iterations < options.max_iterations) : (iterations += 1) {
+            var shuffled = false;
+
+            pos = 0;
+            for (out.items) |p| {
+                if (seen.get(p.name)) |idx| {
+                    if (idx < pos) {
+                        shuffled = true;
+                        std.debug.print("shuffling {s} from {} to {}\n", .{ p.name, pos, idx });
+                        const tmp = out.orderedRemove(pos);
+                        out.insertAssumeCapacity(idx, tmp);
+                        try seen.put(p.name, idx);
+                    }
+                }
+
+                pos += 1;
+            }
+
+            if (!shuffled) break;
+        }
+        std.debug.print("returning after {} iterations.\n", .{iterations});
+        return out.toOwnedSlice();
+    }
+
     //
     // -- index --------------------------------------------------------------
     //

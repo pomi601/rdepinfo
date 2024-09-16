@@ -77,10 +77,7 @@ fn hashOne(
             });
         };
 
-        const config_file = std.fs.cwd().openFile(config_path, .{
-            .mode = .write_only,
-            .lock = .exclusive,
-        }) catch |err| {
+        const config_file = std.fs.cwd().createFile(config_path, .{}) catch |err| {
             fatal("ERROR: cannot open config file '{s}': {s}\n", .{ config_path, @errorName(err) });
         };
         defer config_file.close();

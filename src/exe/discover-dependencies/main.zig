@@ -345,43 +345,35 @@ fn updateAssetEntry(
     orig_assets: Assets,
 ) void {
     if (orig_assets.map.get(name)) |orig| {
-        if (std.mem.eql(u8, orig.url, url))
+        if (std.mem.eql(u8, orig.url, url)) {
+            assets.map.put(alloc, name, orig) catch @panic("OOM");
             return;
+        }
     }
 
     assets.map.put(alloc, name, .{ .url = url }) catch @panic("OOM");
 }
 
 fn writeAssets(alloc: Allocator, path: []const u8, assets: Assets) !void {
-    // TODO: some issues with updating causing consistent JSON
-    // corruption, so let's be convoluted here.
-    const old = try config_json.readConfigRoot(alloc, path);
-    const root = ConfigRoot{
-        .@"update-deps" = old.@"update-deps",
-        .assets = assets,
-    };
+    var root = try config_json.readConfigRoot(alloc, path);
+    root.assets = assets;
 
+    const bak = try std.fmt.allocPrint(alloc, "{s}.__bak__", .{path});
+    std.fs.cwd().deleteFile(bak) catch {};
+    try std.fs.cwd().copyFile(path, std.fs.cwd(), bak, .{});
     {
-        const config_file = try std.fs.cwd().openFile(path, .{
-            .mode = .write_only,
-            .lock = .exclusive,
-        });
+        const config_file = try std.fs.cwd().createFile(path, .{});
         defer config_file.close();
-        try config_file.seekTo(0); // TODO needed?
-
-        const json = try std.json.stringifyAlloc(alloc, root, .{ .whitespace = .indent_2 });
-        std.debug.print("{s}\n", .{json});
-
-        try config_file.writeAll(json);
-
-        // try std.json.stringify(root, .{ .whitespace = .indent_2 }, config_file.writer());
+        try std.json.stringify(root, .{ .whitespace = .indent_2 }, config_file.writer());
     }
+    std.fs.cwd().deleteFile(bak) catch {};
 
     std.debug.print("\nWrote {s}\n", .{path});
 }
 
 fn writeBuildRules(
     alloc: Allocator,
+    asset_dir: []const u8,
     out_path: []const u8,
     lib_path: []const u8,
     merged: []NAVC,
@@ -403,6 +395,31 @@ fn writeBuildRules(
         \\
     , .{});
 
+    var merged_packages = try std.ArrayList(Repository.Package).initCapacity(alloc, merged.len);
+    defer merged_packages.deinit();
+    for (merged) |navc| {
+        if (cloud_index.findPackage(navc)) |idx| {
+            merged_packages.appendAssumeCapacity(cloud.packages.get(idx));
+        } else unreachable;
+    }
+
+    const ordered = try cloud.calculateInstallationOrder(merged_packages.items, .{});
+    defer alloc.free(ordered);
+
+    for (ordered) |p| {
+        if (seen.contains(p.name)) continue;
+        try seen.put(p.name, true);
+
+        const tarball = try std.fmt.allocPrint(
+            alloc,
+            "{s}_{s}.tar.gz",
+            .{ p.name, p.version_string },
+        );
+
+        const path = try std.fs.path.join(alloc, &.{ asset_dir, tarball });
+        try writeOnePackage(writer, p, lib_path, path, false);
+    }
+
     var it = packages.iter();
     while (it.next()) |p| {
         if (seen.contains(p.name)) continue;
@@ -411,23 +428,6 @@ fn writeBuildRules(
         if (try findDirectory(alloc, p.name, package_dirs)) |dir| {
             defer alloc.free(dir);
             try writeOnePackage(writer, p, lib_path, dir, true);
-        }
-    }
-
-    for (merged) |navc| {
-        if (cloud_index.findPackage(navc)) |idx| {
-            const p = cloud.packages.get(idx);
-            if (seen.contains(p.name)) continue;
-            try seen.put(p.name, true);
-
-            const tarball = try std.fmt.allocPrint(
-                alloc,
-                "{s}_{s}.tar.gz",
-                .{ p.name, p.version_string },
-            );
-
-            const path = try std.fs.path.join(alloc, &.{ out_path, tarball });
-            try writeOnePackage(writer, p, lib_path, path, false);
         }
     }
 
@@ -483,7 +483,6 @@ fn writeOnePackage(
     for (p.imports) |navc| {
         if (isBasePackage(navc.name)) continue;
         if (isRecommendedPackage(navc.name)) continue;
-
         try std.fmt.format(writer,
             \\@"{s}".step.dependOn(&@"{s}".step);
             \\
@@ -492,7 +491,6 @@ fn writeOnePackage(
     for (p.linkingTo) |navc| {
         if (isBasePackage(navc.name)) continue;
         if (isRecommendedPackage(navc.name)) continue;
-
         try std.fmt.format(writer,
             \\@"{s}".step.dependOn(&@"{s}".step);
             \\
@@ -544,6 +542,7 @@ pub fn main() !void {
     const generated = try std.fs.path.join(alloc, &.{ out_dir_path, "build.zig" });
     try writeBuildRules(
         alloc,
+        out_dir_path,
         generated,
         lib_dir_path,
         merged,
