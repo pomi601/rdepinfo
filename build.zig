@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Build = std.Build;
 const Compile = std.Build.Step.Compile;
+const Module = std.Build.Module;
 const ResolvedTarget = Build.ResolvedTarget;
 const OptimizeMode = std.builtin.OptimizeMode;
 
@@ -33,7 +34,7 @@ fn build_fetch_assets(b: *Build, target: ResolvedTarget, optimize: OptimizeMode)
 fn build_download_file(b: *Build, target: ResolvedTarget, optimize: OptimizeMode) *Compile {
     const exe = b.addExecutable(.{
         .name = "download-file",
-        .root_source_file = b.path("src/exe/download-file//main.zig"),
+        .root_source_file = b.path("src/exe/download-file/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -44,6 +45,29 @@ fn build_download_file(b: *Build, target: ResolvedTarget, optimize: OptimizeMode
     }).module("common");
 
     exe.root_module.addImport("common", common);
+    return exe;
+}
+
+fn build_discover_dependencies(
+    b: *Build,
+    rdepinfo: *Module,
+    target: ResolvedTarget,
+    optimize: OptimizeMode,
+) *Compile {
+    const exe = b.addExecutable(.{
+        .name = "discover-dependencies",
+        .root_source_file = b.path("src/exe/discover-dependencies/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const common = b.dependency("common", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("common");
+
+    exe.root_module.addImport("common", common);
+    exe.root_module.addImport("rdepinfo", rdepinfo);
     return exe;
 }
 
@@ -149,6 +173,15 @@ pub fn build(b: *Build) !void {
     const download_file = build_download_file(b, target, optimize);
     b.installArtifact(download_file);
     b.getInstallStep().dependOn(&download_file.step);
+
+    const discover_dependencies = build_discover_dependencies(
+        b,
+        mod,
+        target,
+        optimize,
+    );
+    b.installArtifact(discover_dependencies);
+    b.getInstallStep().dependOn(&discover_dependencies.step);
 
     // -- end tools ----------------------------------------------------------
 
