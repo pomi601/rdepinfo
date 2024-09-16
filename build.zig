@@ -21,12 +21,12 @@ pub fn build_fetch_assets(b: *Build, target: ResolvedTarget, optimize: OptimizeM
         .optimize = optimize,
     });
 
-    // const common = b.dependency("common", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    // }).module("common");
+    const common = b.dependency("common", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("common");
 
-    // exe.root_module.addImport("common", common);
+    exe.root_module.addImport("common", common);
     return exe;
 }
 
