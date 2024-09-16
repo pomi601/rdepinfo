@@ -22,7 +22,7 @@ pub const OneAsset = struct {
 
 /// Caller should supply an arena allocator as this parse will leak memory.
 pub fn readConfigRoot(alloc: std.mem.Allocator, path: []const u8) !ConfigRoot {
-    const config_file = try std.fs.cwd().openFile(path, .{});
+    const config_file = try std.fs.cwd().openFile(path, .{ .lock = .exclusive });
     defer config_file.close();
 
     const buf = try config_file.readToEndAlloc(alloc, 128 * 1024);

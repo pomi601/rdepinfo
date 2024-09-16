@@ -16,16 +16,16 @@ const download = common.download;
 
 const Assets = config_json.Assets;
 const Config = config_json.Config;
+const ConfigRoot = config_json.ConfigRoot;
 const Repository = rdepinfo.Repository;
 
 fn usage() noreturn {
     std.debug.print(
-        \\Usage: discover-dependencies <config.json> <out_dir> [src_pkg_dir...]
+        \\Usage: discover-dependencies <config.json> <out_dir> <lib_dir> [src_pkg_dir...]
     , .{});
     std.process.exit(1);
 }
-
-const NUM_ARGS_MIN = 2;
+const NUM_ARGS_MIN = 3;
 
 /// Requires thread-safe allocator.
 fn readRepositories(alloc: Allocator, repos: []Config.Repo, out_dir: []const u8) !Repository {
@@ -136,35 +136,52 @@ fn readPackagesIntoRepository(alloc: Allocator, repository: *Repository, dir: st
     }
 }
 
-fn calculateDependencies(alloc: Allocator, packages: Repository, cloud: Repository) ![]NAVC {
-    // collect external dependencies
-    var deps = NAVCHashMap.init(alloc);
-    defer deps.deinit();
+fn findDirectory(alloc: Allocator, name: []const u8, roots: []const []const u8) !?[]const u8 {
+    for (roots) |root| {
+        var start = try std.fs.cwd().openDir(root, .{ .iterate = true });
+        defer start.close();
 
-    var it = packages.iter();
-    while (it.next()) |p| {
-        for (p.depends) |navc| {
-            if (isBasePackage(navc.name)) continue;
-            if (isRecommendedPackage(navc.name)) continue;
-            if (try packages.findLatestPackage(alloc, navc) == null) {
-                try deps.put(navc, true);
-            }
-        }
-        for (p.imports) |navc| {
-            if (isBasePackage(navc.name)) continue;
-            if (isRecommendedPackage(navc.name)) continue;
-            if (try packages.findLatestPackage(alloc, navc) == null) {
-                try deps.put(navc, true);
-            }
-        }
-        for (p.linkingTo) |navc| {
-            if (isBasePackage(navc.name)) continue;
-            if (isRecommendedPackage(navc.name)) continue;
-            if (try packages.findLatestPackage(alloc, navc) == null) {
-                try deps.put(navc, true);
+        var walker = try start.walk(alloc);
+        defer walker.deinit();
+
+        while (try walker.next()) |d| {
+            switch (d.kind) {
+                .directory => {
+                    if (std.mem.eql(u8, name, d.basename))
+                        return try d.dir.realpathAlloc(alloc, d.path);
+                },
+                else => continue,
             }
         }
     }
+    return null;
+}
+
+fn findTarball(
+    alloc: Allocator,
+    package: NAVC,
+    repo: Repository,
+    index: Repository.Index,
+) !?[]const u8 {
+    if (index.findPackage(package)) |found| {
+        const slice = repo.packages.slice();
+        const name = slice.items(.name)[found];
+        const ver = slice.items(.version_string)[found];
+
+        const tarball = try std.fmt.allocPrint(
+            alloc,
+            "{s}_{s}.tar.gz",
+            .{ name, ver },
+        );
+        return tarball;
+    }
+    return null;
+}
+
+fn calculateDependencies(alloc: Allocator, packages: Repository, cloud: Repository) ![]NAVC {
+    // collect external dependencies
+    var deps = try getDirectDependencies(alloc, packages);
+    defer deps.deinit();
 
     // sort the hash map
     deps.sort(NAVCHashMapSortContext{ .keys = deps.keys() });
@@ -213,14 +230,45 @@ fn calculateDependencies(alloc: Allocator, packages: Repository, cloud: Reposito
     return merged;
 }
 
+/// Caller must free returned slice.
+fn getDirectDependencies(alloc: Allocator, packages: Repository) !NAVCHashMap {
+    var deps = NAVCHashMap.init(alloc);
+
+    var it = packages.iter();
+    while (it.next()) |p| {
+        for (p.depends) |navc| {
+            if (isBasePackage(navc.name)) continue;
+            if (isRecommendedPackage(navc.name)) continue;
+            if (try packages.findLatestPackage(alloc, navc) == null) {
+                try deps.put(navc, true);
+            }
+        }
+        for (p.imports) |navc| {
+            if (isBasePackage(navc.name)) continue;
+            if (isRecommendedPackage(navc.name)) continue;
+            if (try packages.findLatestPackage(alloc, navc) == null) {
+                try deps.put(navc, true);
+            }
+        }
+        for (p.linkingTo) |navc| {
+            if (isBasePackage(navc.name)) continue;
+            if (isRecommendedPackage(navc.name)) continue;
+            if (try packages.findLatestPackage(alloc, navc) == null) {
+                try deps.put(navc, true);
+            }
+        }
+    }
+    return deps;
+}
+
 /// Requires thread-safe allocator.
 fn checkAndCreateAssets(
     alloc: Allocator,
     packages: []NAVC,
     cloud: Repository,
+    cloud_index: Repository.Index,
     assets_orig: Assets,
 ) !Assets {
-    const cloud_index = try cloud.createIndex();
 
     // find the source
     var assets = Assets{};
@@ -305,15 +353,152 @@ fn updateAssetEntry(
 }
 
 fn writeAssets(alloc: Allocator, path: []const u8, assets: Assets) !void {
-    var root = try config_json.readConfigRoot(alloc, path);
-    root.assets = assets;
-    const config_file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
-    defer config_file.close();
-    try std.json.stringify(root, .{ .whitespace = .indent_2 }, config_file.writer());
+    // TODO: some issues with updating causing consistent JSON
+    // corruption, so let's be convoluted here.
+    const old = try config_json.readConfigRoot(alloc, path);
+    const root = ConfigRoot{
+        .@"update-deps" = old.@"update-deps",
+        .assets = assets,
+    };
+
+    {
+        const config_file = try std.fs.cwd().openFile(path, .{
+            .mode = .write_only,
+            .lock = .exclusive,
+        });
+        defer config_file.close();
+        try config_file.seekTo(0); // TODO needed?
+
+        const json = try std.json.stringifyAlloc(alloc, root, .{ .whitespace = .indent_2 });
+        std.debug.print("{s}\n", .{json});
+
+        try config_file.writeAll(json);
+
+        // try std.json.stringify(root, .{ .whitespace = .indent_2 }, config_file.writer());
+    }
+
     std.debug.print("\nWrote {s}\n", .{path});
 }
 
-// fn writeBuildRules(alloc: Allocator, packages: Repository, cloud: Repository) !void {}
+fn writeBuildRules(
+    alloc: Allocator,
+    out_path: []const u8,
+    lib_path: []const u8,
+    merged: []NAVC,
+    packages: Repository,
+    cloud: Repository,
+    cloud_index: Repository.Index,
+    package_dirs: []const []const u8,
+) !void {
+    var seen = std.StringArrayHashMap(bool).init(alloc);
+    defer seen.deinit();
+
+    var file = try std.fs.cwd().createFile(out_path, .{});
+    defer file.close();
+    const writer = file.writer();
+
+    try std.fmt.format(writer,
+        \\const std = @import("std");
+        \\pub fn build(b: *std.Build) !void {{
+        \\
+    , .{});
+
+    var it = packages.iter();
+    while (it.next()) |p| {
+        if (seen.contains(p.name)) continue;
+        try seen.put(p.name, true);
+
+        if (try findDirectory(alloc, p.name, package_dirs)) |dir| {
+            defer alloc.free(dir);
+            try writeOnePackage(writer, p, lib_path, dir, true);
+        }
+    }
+
+    for (merged) |navc| {
+        if (cloud_index.findPackage(navc)) |idx| {
+            const p = cloud.packages.get(idx);
+            if (seen.contains(p.name)) continue;
+            try seen.put(p.name, true);
+
+            const tarball = try std.fmt.allocPrint(
+                alloc,
+                "{s}_{s}.tar.gz",
+                .{ p.name, p.version_string },
+            );
+
+            const path = try std.fs.path.join(alloc, &.{ out_path, tarball });
+            try writeOnePackage(writer, p, lib_path, path, false);
+        }
+    }
+
+    try std.fmt.format(writer, "\n}}", .{});
+}
+
+fn writeOnePackage(
+    writer: anytype,
+    p: Repository.Package,
+    lib_path: []const u8,
+    dir: []const u8,
+    is_dir: bool,
+) !void {
+    try std.fmt.format(writer,
+        \\
+        \\const @"{s}" = b.addSystemCommand(&.{{ "R", "CMD", "INSTALL" }});
+        \\
+    , .{p.name});
+    try std.fmt.format(writer,
+        \\@"{s}".addArgs(&.{{
+        \\    "--no-docs",
+        \\    "--no-multiarch",
+        \\    "-l",
+        \\}});
+        \\
+    , .{p.name});
+    try std.fmt.format(writer,
+        \\@"{s}".addOutputDirectoryArg("{s}");
+        \\
+    , .{ p.name, lib_path });
+    if (is_dir) {
+        try std.fmt.format(writer,
+            \\@"{s}".addDirectoryArg("{s}");
+            \\@"{s}".step.name = {s};
+            \\
+        , .{ p.name, dir, p.name, p.name });
+    } else {
+        try std.fmt.format(writer,
+            \\@"{s}".addArg("{s}");
+            \\@"{s}".step.name = {s};
+            \\
+        , .{ p.name, dir, p.name, p.name });
+    }
+
+    for (p.depends) |navc| {
+        if (isBasePackage(navc.name)) continue;
+        if (isRecommendedPackage(navc.name)) continue;
+        try std.fmt.format(writer,
+            \\@"{s}".step.dependOn(&@"{s}".step);
+            \\
+        , .{ p.name, navc.name });
+    }
+    for (p.imports) |navc| {
+        if (isBasePackage(navc.name)) continue;
+        if (isRecommendedPackage(navc.name)) continue;
+
+        try std.fmt.format(writer,
+            \\@"{s}".step.dependOn(&@"{s}".step);
+            \\
+        , .{ p.name, navc.name });
+    }
+    for (p.linkingTo) |navc| {
+        if (isBasePackage(navc.name)) continue;
+        if (isRecommendedPackage(navc.name)) continue;
+
+        try std.fmt.format(writer,
+            \\@"{s}".step.dependOn(&@"{s}".step);
+            \\
+        , .{ p.name, navc.name });
+    }
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -329,6 +514,7 @@ pub fn main() !void {
     if (args.len < NUM_ARGS_MIN + 1) usage();
     const config_path = args[1];
     const out_dir_path = args[2];
+    const lib_dir_path = args[3];
 
     const config = config_json.readConfigRoot(alloc, config_path) catch |err| {
         fatal("ERROR: failed to read config file '{s}': {s}", .{ config_path, @errorName(err) });
@@ -337,19 +523,35 @@ pub fn main() !void {
     const assets_orig = config.assets;
 
     // this requires a threadsafe allocator
-    const repositories = readRepositories(alloc, repos, out_dir_path) catch |err| {
+    const cloud = readRepositories(alloc, repos, out_dir_path) catch |err| {
         fatal("ERROR: failed to download/read repositories: {s}\n", .{@errorName(err)});
     };
+    const cloud_index = cloud.createIndex() catch |err| {
+        fatal("ERROR: failed to create repository index: {s}\n", .{@errorName(err)});
+    };
 
-    const packages = readPackageDirs(alloc, args[3..args.len]);
-    const merged = calculateDependencies(alloc, packages, repositories) catch |err| {
+    const package_dirs = args[NUM_ARGS_MIN + 1 .. args.len];
+    const packages = readPackageDirs(alloc, package_dirs);
+    const merged = calculateDependencies(alloc, packages, cloud) catch |err| {
         fatal("ERROR: failed to calculate dependencies: {s}\n", .{@errorName(err)});
     };
 
-    const assets = checkAndCreateAssets(alloc, merged, repositories, assets_orig) catch |err| {
+    const assets = checkAndCreateAssets(alloc, merged, cloud, cloud_index, assets_orig) catch |err| {
         fatal("ERROR: failed to check and create assets: {s}\n", .{@errorName(err)});
     };
     try writeAssets(alloc, config_path, assets);
+
+    const generated = try std.fs.path.join(alloc, &.{ out_dir_path, "build.zig" });
+    try writeBuildRules(
+        alloc,
+        generated,
+        lib_dir_path,
+        merged,
+        packages,
+        cloud,
+        cloud_index,
+        package_dirs,
+    );
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {
