@@ -144,10 +144,11 @@ fn readPackagesIntoRepository(alloc: Allocator, repository: *Repository, dir: st
 fn findDirectory(alloc: Allocator, name: []const u8, roots: []const []const u8) !?[]const u8 {
     for (roots) |root| {
         if (std.mem.eql(u8, name, std.fs.path.basename(root)))
-            return root;
+            return try alloc.dupe(u8, root);
 
         var start = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
-            fatal("ERROR: cannot open directory '{s}': {s}\n", .{ root, @errorName(err) });
+            std.debug.print("WARNING: cannot open directory '{s}': {s}\n", .{ root, @errorName(err) });
+            continue;
         };
         defer start.close();
 
@@ -157,8 +158,9 @@ fn findDirectory(alloc: Allocator, name: []const u8, roots: []const []const u8) 
         while (try walker.next()) |d| {
             switch (d.kind) {
                 .directory => {
-                    if (std.mem.eql(u8, name, d.basename))
-                        return try alloc.dupe(u8, d.path);
+                    if (std.mem.eql(u8, name, d.basename)) {
+                        return try std.fs.path.join(alloc, &.{ root, d.path });
+                    }
                 },
                 else => continue,
             }
@@ -400,6 +402,8 @@ fn writeBuildRules(
         \\const std = @import("std");
         \\pub fn build(b: *std.Build, asset_dir: std.Build.LazyPath) !void {{
         \\
+        \\const libdir = b.addWriteFiles();
+        \\
     , .{});
 
     var merged_packages = try std.ArrayList(Repository.Package).initCapacity(alloc, merged.len);
@@ -436,7 +440,7 @@ fn writeBuildRules(
         }
     }
 
-    try std.fmt.format(writer, "\n}}", .{});
+    try std.fmt.format(writer, "\n}}\n", .{});
     std.debug.print("Wrote {s}\n", .{out_path});
 }
 
@@ -462,9 +466,9 @@ fn writeOnePackage(
         \\
     , .{p.name});
     try std.fmt.format(writer,
-        \\ const @"{s}_out" = @"{s}".addOutputDirectoryArg("lib");
+        \\ _ = @"{s}".addDirectoryArg(libdir.getDirectory());
         \\
-    , .{ p.name, p.name });
+    , .{p.name});
 
     if (is_dir) {
         try std.fmt.format(writer,
@@ -507,12 +511,14 @@ fn writeOnePackage(
 
     try std.fmt.format(writer,
         \\ const @"{s}_install" = b.addInstallDirectory(.{{
-        \\.source_dir = @"{s}_out".path(b, "{s}"),
+        \\.source_dir = libdir.getDirectory().path(b, "{s}"),
         \\.install_dir = .{{ .custom = "lib" }},
         \\.install_subdir = "{s}",
         \\}});
         \\
-    , .{ p.name, p.name, p.name, p.name });
+        \\@"{s}_install".step.dependOn(&@"{s}".step);
+        \\
+    , .{ p.name, p.name, p.name, p.name, p.name });
 
     try std.fmt.format(writer,
         \\b.getInstallStep().dependOn(&@"{s}_install".step);
