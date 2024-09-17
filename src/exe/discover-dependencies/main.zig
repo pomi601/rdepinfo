@@ -21,11 +21,11 @@ const Repository = rdepinfo.Repository;
 
 fn usage() noreturn {
     std.debug.print(
-        \\Usage: discover-dependencies <config.json> <out_dir> <lib_dir> [src_pkg_dir...]
+        \\Usage: discover-dependencies <config.json> <out_dir> [src_pkg_dir...]
     , .{});
     std.process.exit(1);
 }
-const NUM_ARGS_MIN = 3;
+const NUM_ARGS_MIN = 2;
 
 /// Requires thread-safe allocator.
 fn readRepositories(alloc: Allocator, repos: []Config.Repo, out_dir: []const u8) !Repository {
@@ -384,7 +384,6 @@ fn writeAssets(alloc: Allocator, path: []const u8, assets: Assets) !void {
 fn writeBuildRules(
     alloc: Allocator,
     out_path: []const u8,
-    lib_path: []const u8,
     merged: []NAVC,
     packages: Repository,
     cloud: Repository,
@@ -422,7 +421,7 @@ fn writeBuildRules(
                 .{ p.name, p.version_string },
             );
 
-            try writeOnePackage(writer, p, lib_path, tarball, false);
+            try writeOnePackage(writer, p, tarball, false);
         }
     }
     {
@@ -430,7 +429,7 @@ fn writeBuildRules(
         for (ordered) |p| {
             if (try findDirectory(alloc, p.name, package_dirs)) |dir| {
                 defer alloc.free(dir);
-                try writeOnePackage(writer, p, lib_path, dir, true);
+                try writeOnePackage(writer, p, dir, true);
             } else {
                 std.debug.print("WARNING: failed to find directory for {s}\n", .{p.name});
             }
@@ -444,7 +443,6 @@ fn writeBuildRules(
 fn writeOnePackage(
     writer: anytype,
     p: Repository.Package,
-    lib_path: []const u8,
     dir: []const u8,
     is_dir: bool,
 ) !void {
@@ -458,16 +456,15 @@ fn writeOnePackage(
         \\    "CMD",
         \\    "INSTALL",
         \\    "--no-docs",
-        \\    "--no-docs",
         \\    "--no-multiarch",
         \\    "-l",
         \\}});
         \\
     , .{p.name});
     try std.fmt.format(writer,
-        \\_ = @"{s}".addArg("{s}");
+        \\ const @"{s}_out" = {s}.addOutputDirectoryArg("lib");
         \\
-    , .{ p.name, lib_path });
+    , .{ p.name, p.name });
     if (is_dir) {
         try std.fmt.format(writer,
             \\_ = @"{s}".addArg("{s}");
@@ -507,13 +504,19 @@ fn writeOnePackage(
         , .{ p.name, navc.name });
     }
 
-    // if this package is a directory, it's our source. Make the build install step depend on it.
-    if (is_dir) {
-        try std.fmt.format(writer,
-            \\b.getInstallStep().dependOn(&@"{s}".step);
-            \\
-        , .{p.name});
-    }
+    try std.fmt.format(writer,
+        \\ const @"{s}_install" = b.addInstallDirectory(.{{
+        \\.source_dir = @"{s}_out".path(b, "{s}"),
+        \\.install_dir = .{{ .custom = "lib" }},
+        \\.install_subdir = "{s}",
+        \\}});
+        \\
+    , .{ p.name, p.name, p.name, p.name });
+
+    try std.fmt.format(writer,
+        \\b.getInstallStep().dependOn(&@"{s}_install".step);
+        \\
+    , .{p.name});
 }
 
 pub fn main() !void {
@@ -530,7 +533,6 @@ pub fn main() !void {
     if (args.len < NUM_ARGS_MIN + 1) usage();
     const config_path = args[1];
     const out_dir_path = args[2];
-    const lib_dir_path = args[3];
 
     const config = config_json.readConfigRoot(alloc, config_path) catch |err| {
         fatal("ERROR: failed to read config file '{s}': {s}", .{ config_path, @errorName(err) });
@@ -575,7 +577,6 @@ pub fn main() !void {
     try writeBuildRules(
         alloc,
         generated,
-        lib_dir_path,
         merged,
         packages,
         cloud,
