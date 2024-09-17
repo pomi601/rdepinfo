@@ -547,15 +547,7 @@ pub fn main() !void {
         fatal("ERROR: failed to create repository index: {s}\n", .{@errorName(err)});
     };
 
-    const package_dirs = blk: {
-        var list = try std.ArrayList([]const u8).initCapacity(alloc, args.len);
-        defer list.deinit();
-
-        for (args[NUM_ARGS_MIN + 1 .. args.len]) |relpath| {
-            list.appendAssumeCapacity(try std.fs.cwd().realpathAlloc(alloc, relpath));
-        }
-        break :blk try list.toOwnedSlice();
-    };
+    const package_dirs = args[NUM_ARGS_MIN + 1 .. args.len];
 
     std.debug.print("Package directories:\n", .{});
     for (package_dirs) |d| {
