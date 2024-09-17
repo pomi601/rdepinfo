@@ -143,6 +143,11 @@ fn readPackagesIntoRepository(alloc: Allocator, repository: *Repository, dir: st
 
 fn findDirectory(alloc: Allocator, name: []const u8, roots: []const []const u8) !?[]const u8 {
     for (roots) |root| {
+        var buf: [4 * 1024]u8 = undefined;
+        const root_path = try std.fs.cwd().realpath(root, &buf);
+        if (std.mem.eql(u8, name, std.fs.path.basename(root_path)))
+            return try std.fs.cwd().realpathAlloc(alloc, root);
+
         var start = try std.fs.cwd().openDir(root, .{ .iterate = true });
         defer start.close();
 
@@ -387,9 +392,6 @@ fn writeBuildRules(
     cloud_index: Repository.Index,
     package_dirs: []const []const u8,
 ) !void {
-    var seen = std.StringArrayHashMap(bool).init(alloc);
-    defer seen.deinit();
-
     var file = try std.fs.cwd().createFile(out_path, .{});
     defer file.close();
     const writer = file.writer();
@@ -408,31 +410,30 @@ fn writeBuildRules(
         } else unreachable;
     }
 
-    const ordered = try cloud.calculateInstallationOrder(merged_packages.items, .{});
-    defer alloc.free(ordered);
+    {
+        const ordered = try cloud.calculateInstallationOrder(merged_packages.items, .{});
+        defer alloc.free(ordered);
 
-    for (ordered) |p| {
-        if (seen.contains(p.name)) continue;
-        try seen.put(p.name, true);
+        for (ordered) |p| {
+            const tarball = try std.fmt.allocPrint(
+                alloc,
+                "{s}_{s}.tar.gz",
+                .{ p.name, p.version_string },
+            );
 
-        const tarball = try std.fmt.allocPrint(
-            alloc,
-            "{s}_{s}.tar.gz",
-            .{ p.name, p.version_string },
-        );
-
-        const path = try std.fs.path.join(alloc, &.{ asset_dir, tarball });
-        try writeOnePackage(writer, p, lib_path, path, false);
+            const path = try std.fs.path.join(alloc, &.{ asset_dir, tarball });
+            try writeOnePackage(writer, p, lib_path, path, false);
+        }
     }
-
-    var it = packages.iter();
-    while (it.next()) |p| {
-        if (seen.contains(p.name)) continue;
-        try seen.put(p.name, true);
-
-        if (try findDirectory(alloc, p.name, package_dirs)) |dir| {
-            defer alloc.free(dir);
-            try writeOnePackage(writer, p, lib_path, dir, true);
+    {
+        const ordered = try packages.calculateInstallationOrderAll();
+        for (ordered) |p| {
+            if (try findDirectory(alloc, p.name, package_dirs)) |dir| {
+                defer alloc.free(dir);
+                try writeOnePackage(writer, p, lib_path, dir, true);
+            } else {
+                std.debug.print("WARNING: failed to find directory for {s}\n", .{p.name});
+            }
         }
     }
 
@@ -536,7 +537,21 @@ pub fn main() !void {
         fatal("ERROR: failed to create repository index: {s}\n", .{@errorName(err)});
     };
 
-    const package_dirs = args[NUM_ARGS_MIN + 1 .. args.len];
+    const package_dirs = blk: {
+        var list = try std.ArrayList([]const u8).initCapacity(alloc, args.len);
+        defer list.deinit();
+
+        for (args[NUM_ARGS_MIN + 1 .. args.len]) |relpath| {
+            list.appendAssumeCapacity(try std.fs.cwd().realpathAlloc(alloc, relpath));
+        }
+        break :blk try list.toOwnedSlice();
+    };
+
+    std.debug.print("Package directories:\n", .{});
+    for (package_dirs) |d| {
+        std.debug.print("    {s}\n", .{d});
+    }
+
     const packages = readPackageDirs(alloc, package_dirs);
     const merged = calculateDependencies(alloc, packages, cloud) catch |err| {
         fatal("ERROR: failed to calculate dependencies: {s}\n", .{@errorName(err)});

@@ -439,7 +439,7 @@ pub const Repository = struct {
         while (pos < out.items.len) : (pos += 1) {
             const p = out.items[pos];
             if (p.depends.len == 0 and p.imports.len == 0 and p.linkingTo.len == 0) {
-                std.debug.print("moving {s} to the front as it has no dependencies\n", .{p.name});
+                // std.debug.print("moving {s} to the front as it has no dependencies\n", .{p.name});
                 out.insertAssumeCapacity(0, out.orderedRemove(pos));
             }
         }
@@ -462,7 +462,7 @@ pub const Repository = struct {
                 if (seen.get(p.name)) |idx| {
                     if (idx < pos) {
                         shuffled = true;
-                        std.debug.print("shuffling {s} from {} to {}\n", .{ p.name, pos, idx });
+                        // std.debug.print("shuffling {s} from {} to {}\n", .{ p.name, pos, idx });
 
                         // do the remove/insert
                         std.debug.assert(idx < pos);
@@ -478,6 +478,21 @@ pub const Repository = struct {
         return out.toOwnedSlice();
     }
 
+    /// Caller owns the returned slice.
+    pub fn calculateInstallationOrderAll(self: Repository) ![]Package {
+        var packages = try std.ArrayList(Package).initCapacity(self.alloc, self.packages.len);
+        defer packages.deinit();
+
+        var slice = self.packages.slice();
+        defer slice.deinit(self.alloc);
+
+        var index: usize = 0;
+        while (index < slice.len) : (index += 1) {
+            packages.appendAssumeCapacity(slice.get(index));
+        }
+        return self.calculateInstallationOrder(packages.items, .{});
+    }
+
     fn recordEarliestDependents(packages: std.ArrayList(Package), seen: *std.StringArrayHashMap(usize)) !void {
         var pos: usize = 0;
         while (pos < packages.items.len) : (pos += 1) {
@@ -490,7 +505,7 @@ pub const Repository = struct {
         for (p.depends) |x| {
             if (isBasePackage(x.name)) continue;
             if (isRecommendedPackage(x.name)) continue;
-            std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+            // std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
             const gop = try seen.getOrPut(x.name);
             if (!gop.found_existing or gop.value_ptr.* > pos)
                 gop.value_ptr.* = pos;
@@ -498,7 +513,7 @@ pub const Repository = struct {
         for (p.imports) |x| {
             if (isBasePackage(x.name)) continue;
             if (isRecommendedPackage(x.name)) continue;
-            std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+            // std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
             const gop = try seen.getOrPut(x.name);
             if (!gop.found_existing or gop.value_ptr.* > pos)
                 gop.value_ptr.* = pos;
@@ -506,7 +521,7 @@ pub const Repository = struct {
         for (p.linkingTo) |x| {
             if (isBasePackage(x.name)) continue;
             if (isRecommendedPackage(x.name)) continue;
-            std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+            // std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
             const gop = try seen.getOrPut(x.name);
             if (!gop.found_existing or gop.value_ptr.* > pos)
                 gop.value_ptr.* = pos;
