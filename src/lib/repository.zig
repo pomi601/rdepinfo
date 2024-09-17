@@ -425,7 +425,7 @@ pub const Repository = struct {
         self: Repository,
         packages: []Package,
         comptime options: struct {
-            max_iterations: usize = 1024,
+            max_iterations: usize = 256,
         },
     ) ![]Package {
         var out = try std.ArrayList(Package).initCapacity(self.alloc, packages.len);
@@ -434,33 +434,14 @@ pub const Repository = struct {
         // earliest position a package is referenced
         var seen = std.StringArrayHashMap(usize).init(self.alloc);
 
+        // first pass move all packages with zero deps to the front
         var pos: usize = 0;
-        for (out.items) |p| {
-            for (p.depends) |x| {
-                if (isBasePackage(x.name)) continue;
-                if (isRecommendedPackage(x.name)) continue;
-                std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
-                const gop = try seen.getOrPut(x.name);
-                if (!gop.found_existing or gop.value_ptr.* > pos)
-                    gop.value_ptr.* = pos;
+        while (pos < out.items.len) : (pos += 1) {
+            const p = out.items[pos];
+            if (p.depends.len == 0 and p.imports.len == 0 and p.linkingTo.len == 0) {
+                std.debug.print("moving {s} to the front as it has no dependencies\n", .{p.name});
+                out.insertAssumeCapacity(0, out.orderedRemove(pos));
             }
-            for (p.imports) |x| {
-                if (isBasePackage(x.name)) continue;
-                if (isRecommendedPackage(x.name)) continue;
-                std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
-                const gop = try seen.getOrPut(x.name);
-                if (!gop.found_existing or gop.value_ptr.* > pos)
-                    gop.value_ptr.* = pos;
-            }
-            for (p.linkingTo) |x| {
-                if (isBasePackage(x.name)) continue;
-                if (isRecommendedPackage(x.name)) continue;
-                std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
-                const gop = try seen.getOrPut(x.name);
-                if (!gop.found_existing or gop.value_ptr.* > pos)
-                    gop.value_ptr.* = pos;
-            }
-            pos += 1;
         }
 
         // shuffle packages when we find their current position is
@@ -469,25 +450,67 @@ pub const Repository = struct {
         while (iterations < options.max_iterations) : (iterations += 1) {
             var shuffled = false;
 
+            // for each dependency, record the earliest position it is
+            // seen. Needs to be done after each reshuffle.
+            seen.clearRetainingCapacity();
+            try recordEarliestDependents(out, &seen);
+
             pos = 0;
-            for (out.items) |p| {
+            while (pos < out.items.len) : (pos += 1) {
+                const p = out.items[pos];
+
                 if (seen.get(p.name)) |idx| {
                     if (idx < pos) {
                         shuffled = true;
                         std.debug.print("shuffling {s} from {} to {}\n", .{ p.name, pos, idx });
-                        const tmp = out.orderedRemove(pos);
-                        out.insertAssumeCapacity(idx, tmp);
+
+                        // do the remove/insert
+                        std.debug.assert(idx < pos);
+                        out.insertAssumeCapacity(idx, out.orderedRemove(pos));
                         try seen.put(p.name, idx);
                     }
                 }
-
-                pos += 1;
             }
 
             if (!shuffled) break;
         }
         std.debug.print("returning after {} iterations.\n", .{iterations});
         return out.toOwnedSlice();
+    }
+
+    fn recordEarliestDependents(packages: std.ArrayList(Package), seen: *std.StringArrayHashMap(usize)) !void {
+        var pos: usize = 0;
+        while (pos < packages.items.len) : (pos += 1) {
+            const p = packages.items[pos];
+            try recordEarliestDependentsOne(p, pos, seen);
+        }
+    }
+
+    fn recordEarliestDependentsOne(p: Package, pos: usize, seen: *std.StringArrayHashMap(usize)) !void {
+        for (p.depends) |x| {
+            if (isBasePackage(x.name)) continue;
+            if (isRecommendedPackage(x.name)) continue;
+            std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+            const gop = try seen.getOrPut(x.name);
+            if (!gop.found_existing or gop.value_ptr.* > pos)
+                gop.value_ptr.* = pos;
+        }
+        for (p.imports) |x| {
+            if (isBasePackage(x.name)) continue;
+            if (isRecommendedPackage(x.name)) continue;
+            std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+            const gop = try seen.getOrPut(x.name);
+            if (!gop.found_existing or gop.value_ptr.* > pos)
+                gop.value_ptr.* = pos;
+        }
+        for (p.linkingTo) |x| {
+            if (isBasePackage(x.name)) continue;
+            if (isRecommendedPackage(x.name)) continue;
+            std.debug.print("{s} seen at {} by {s}\n", .{ x.name, pos, p.name });
+            const gop = try seen.getOrPut(x.name);
+            if (!gop.found_existing or gop.value_ptr.* > pos)
+                gop.value_ptr.* = pos;
+        }
     }
 
     //

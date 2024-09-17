@@ -106,6 +106,12 @@ fn readPackageDirs(alloc: Allocator, dirs: []const []const u8) Repository {
         };
         std.debug.print("read package directory '{s}'\n", .{dirs[i]});
     }
+
+    std.debug.print("Packages read:\n", .{});
+    var it = repo.iter();
+    while (it.next()) |p| {
+        std.debug.print("    {s} {s}\n", .{ p.name, p.version_string });
+    }
     return repo;
 }
 
@@ -123,6 +129,7 @@ fn readPackagesIntoRepository(alloc: Allocator, repository: *Repository, dir: st
                     const buf = try file.readToEndAlloc(alloc, 128 * 1024);
                     defer alloc.free(buf);
 
+                    std.debug.print("reading {s}\n", .{d.path});
                     _ = try repository.read(d.path, buf);
                 }
             },
@@ -443,11 +450,14 @@ fn writeOnePackage(
 ) !void {
     try std.fmt.format(writer,
         \\
-        \\const @"{s}" = b.addSystemCommand(&.{{ "R", "CMD", "INSTALL" }});
+        \\const @"{s}" = b.addSystemCommand(&.{{ "R" }});
         \\
     , .{p.name});
     try std.fmt.format(writer,
         \\@"{s}".addArgs(&.{{
+        \\    "CMD",
+        \\    "INSTALL",
+        \\    "--no-docs",
         \\    "--no-docs",
         \\    "--no-multiarch",
         \\    "-l",
@@ -461,13 +471,13 @@ fn writeOnePackage(
     if (is_dir) {
         try std.fmt.format(writer,
             \\@"{s}".addDirectoryArg("{s}");
-            \\@"{s}".step.name = {s};
+            \\@"{s}".step.name = "{s}";
             \\
         , .{ p.name, dir, p.name, p.name });
     } else {
         try std.fmt.format(writer,
             \\@"{s}".addArg("{s}");
-            \\@"{s}".step.name = {s};
+            \\@"{s}".step.name = "{s}";
             \\
         , .{ p.name, dir, p.name, p.name });
     }
