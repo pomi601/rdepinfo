@@ -465,18 +465,18 @@ fn writeOnePackage(
         \\
     , .{p.name});
     try std.fmt.format(writer,
-        \\@"{s}".addOutputDirectoryArg("{s}");
+        \\_ = @"{s}".addOutputDirectoryArg("{s}");
         \\
     , .{ p.name, lib_path });
     if (is_dir) {
         try std.fmt.format(writer,
-            \\@"{s}".addDirectoryArg("{s}");
+            \\_ = @"{s}".addDirectoryArg("{s}");
             \\@"{s}".step.name = "{s}";
             \\
         , .{ p.name, dir, p.name, p.name });
     } else {
         try std.fmt.format(writer,
-            \\@"{s}".addArg(std.fmt.allocPrint(b.allocator, "{{s}}/{s}", .{{ asset_dir }}));
+            \\_ = @"{s}".addArg(std.fmt.allocPrint(b.allocator, "{{s}}/{s}", .{{ asset_dir }}));
             \\@"{s}".step.name = "{s}";
             \\
         , .{ p.name, dir, p.name, p.name });
