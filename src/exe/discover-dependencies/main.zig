@@ -143,10 +143,8 @@ fn readPackagesIntoRepository(alloc: Allocator, repository: *Repository, dir: st
 
 fn findDirectory(alloc: Allocator, name: []const u8, roots: []const []const u8) !?[]const u8 {
     for (roots) |root| {
-        var buf: [4 * 1024]u8 = undefined;
-        const root_path = try std.fs.cwd().realpath(root, &buf);
-        if (std.mem.eql(u8, name, std.fs.path.basename(root_path)))
-            return try std.fs.cwd().realpathAlloc(alloc, root);
+        if (std.mem.eql(u8, name, std.fs.path.basename(root)))
+            return root;
 
         var start = try std.fs.cwd().openDir(root, .{ .iterate = true });
         defer start.close();
@@ -158,7 +156,7 @@ fn findDirectory(alloc: Allocator, name: []const u8, roots: []const []const u8) 
             switch (d.kind) {
                 .directory => {
                     if (std.mem.eql(u8, name, d.basename))
-                        return try d.dir.realpathAlloc(alloc, d.path);
+                        return try alloc.dupe(u8, d.path);
                 },
                 else => continue,
             }
