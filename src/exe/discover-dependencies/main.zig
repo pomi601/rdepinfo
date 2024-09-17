@@ -465,7 +465,7 @@ fn writeOnePackage(
         \\
     , .{p.name});
     try std.fmt.format(writer,
-        \\_ = @"{s}".addOutputDirectoryArg("{s}");
+        \\_ = @"{s}".addArg("{s}");
         \\
     , .{ p.name, lib_path });
     if (is_dir) {
