@@ -146,7 +146,9 @@ fn findDirectory(alloc: Allocator, name: []const u8, roots: []const []const u8) 
         if (std.mem.eql(u8, name, std.fs.path.basename(root)))
             return root;
 
-        var start = try std.fs.cwd().openDir(root, .{ .iterate = true });
+        var start = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
+            fatal("ERROR: cannot open directory '{s}': {s}\n", .{ root, @errorName(err) });
+        };
         defer start.close();
 
         var walker = try start.walk(alloc);
