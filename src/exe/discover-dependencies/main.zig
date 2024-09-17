@@ -470,7 +470,7 @@ fn writeOnePackage(
     , .{ p.name, lib_path });
     if (is_dir) {
         try std.fmt.format(writer,
-            \\_ = @"{s}".addDirectoryArg("{s}");
+            \\_ = @"{s}".addArg("{s}");
             \\@"{s}".step.name = "{s}";
             \\
         , .{ p.name, dir, p.name, p.name });
@@ -505,6 +505,14 @@ fn writeOnePackage(
             \\@"{s}".step.dependOn(&@"{s}".step);
             \\
         , .{ p.name, navc.name });
+    }
+
+    // if this package is a directory, it's our source. Make the build install step depend on it.
+    if (is_dir) {
+        try std.fmt.format(writer,
+            \\b.getInstallStep().dependOn(&@"{s}".step);
+            \\
+        , .{p.name});
     }
 }
 
