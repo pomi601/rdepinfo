@@ -21,11 +21,11 @@ const Repository = rdepinfo.Repository;
 
 fn usage() noreturn {
     std.debug.print(
-        \\Usage: discover-dependencies <config.json> <out_dir> <lib_dir> [src_pkg_dir...]
+        \\Usage: discover-dependencies <config.json> <out_dir> <assets_dir> <lib_dir> [src_pkg_dir...]
     , .{});
     std.process.exit(1);
 }
-const NUM_ARGS_MIN = 3;
+const NUM_ARGS_MIN = 4;
 
 /// Requires thread-safe allocator.
 fn readRepositories(alloc: Allocator, repos: []Config.Repo, out_dir: []const u8) !Repository {
@@ -524,7 +524,8 @@ pub fn main() !void {
     if (args.len < NUM_ARGS_MIN + 1) usage();
     const config_path = args[1];
     const out_dir_path = args[2];
-    const lib_dir_path = args[3];
+    const asset_dir_path = args[3];
+    const lib_dir_path = args[4];
 
     const config = config_json.readConfigRoot(alloc, config_path) catch |err| {
         fatal("ERROR: failed to read config file '{s}': {s}", .{ config_path, @errorName(err) });
@@ -568,7 +569,7 @@ pub fn main() !void {
     const generated = try std.fs.path.join(alloc, &.{ out_dir_path, "build.zig" });
     try writeBuildRules(
         alloc,
-        out_dir_path,
+        asset_dir_path,
         generated,
         lib_dir_path,
         merged,
