@@ -948,3 +948,64 @@ test "transitive dependencies" {
         );
     }
 }
+
+test "versions with minus" {
+    const alloc = std.testing.allocator;
+    const data =
+        \\Package: whomadethis
+        \\Version: 2.3-0
+        \\Depends: base64enc (>= 0.1-3), rjson, parallel, R (>= 3.1.0)
+        \\Imports: uuid, RCurl, unixtools, Rserve (>= 1.8-5), rediscc (>= 0.1-3), jsonlite, knitr, markdown, png, Cairo, httr, gist, mime, sendmailR, PKI
+        \\Suggests: FastRWeb, RSclient, rcloud.client, rcloud.solr, rcloud.r
+        \\License: MIT
+        \\
+    ;
+    {
+        var tokenizer = parse.Tokenizer.init(data);
+        defer tokenizer.deinit();
+
+        while (true) {
+            const tok = tokenizer.next();
+            if (tok.tag == .eof) break;
+            tok.debugPrint(data);
+        }
+    }
+    {
+        var parser = try parse.Parser.init(alloc);
+        defer parser.deinit();
+        parser.parse(data) catch |err| switch (err) {
+            error.ParseError => |e| {
+                // self.parse_error = parser.parse_error;
+                return e;
+            },
+            else => |e| {
+                return e;
+            },
+        };
+        for (parser.nodes.items) |node| {
+            std.debug.print("{}\n", .{node});
+        }
+    }
+
+    {
+        var repo = try Repository.init(alloc);
+        defer repo.deinit();
+        _ = try repo.read("test", data);
+
+        std.debug.print("whomadethis:\n", .{});
+        if (try repo.findLatestPackage(alloc, .{ .name = "whomadethis" })) |p| {
+            std.debug.print("  Depends:\n", .{});
+            for (p.depends) |x| {
+                std.debug.print("    {s}\n", .{x.name});
+            }
+            std.debug.print("  Imports:\n", .{});
+            for (p.imports) |x| {
+                std.debug.print("    {s}\n", .{x.name});
+            }
+            std.debug.print("  LinkingTo:\n", .{});
+            for (p.linkingTo) |x| {
+                std.debug.print("    {s}\n", .{x.name});
+            }
+        }
+    }
+}

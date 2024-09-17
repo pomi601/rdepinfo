@@ -378,6 +378,14 @@ pub const Token = struct {
             .plus => "+",
         };
     }
+
+    pub fn debugPrint(self: Token, source: []const u8) void {
+        if (self.lexeme(source)) |lex| {
+            std.debug.print("{} {s}\n", .{ self.tag, lex });
+        } else {
+            std.debug.print("{}\n", .{self.tag});
+        }
+    }
 };
 
 pub const Tokenizer = struct {
@@ -409,6 +417,7 @@ pub const Tokenizer = struct {
         string_literal_backslash,
         version_literal,
         version_literal_dot,
+        version_literal_minus,
         version_literal_r,
         version_literal_r_digit,
         expect_version,
@@ -672,6 +681,9 @@ pub const Tokenizer = struct {
                         '.' => {
                             state = .version_literal_dot;
                         },
+                        '-' => {
+                            state = .version_literal_minus;
+                        },
                         ' ', '\r', '\t' => {
                             break;
                         },
@@ -683,6 +695,17 @@ pub const Tokenizer = struct {
                     }
                 },
                 .version_literal_dot => {
+                    switch (c) {
+                        '0'...'9' => {
+                            state = .version_literal;
+                        },
+                        else => {
+                            result.tag = .invalid;
+                            break;
+                        },
+                    }
+                },
+                .version_literal_minus => {
                     switch (c) {
                         '0'...'9' => {
                             state = .version_literal;
