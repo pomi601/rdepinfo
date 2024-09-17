@@ -133,11 +133,9 @@ fn readPackagesIntoRepository(alloc: Allocator, repository: *Repository, dir: st
                     _ = try repository.read(d.path, buf);
                 }
             },
-            .directory => {
-                var sub = try d.dir.openDir(d.basename, .{ .iterate = true });
-                defer sub.close();
-                try readPackagesIntoRepository(alloc, repository, sub);
-            },
+
+            // walker is a recursive walker, so there's no need to recurse
+            // into directories.
             else => continue,
         }
     }
