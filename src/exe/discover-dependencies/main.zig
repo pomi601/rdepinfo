@@ -440,6 +440,7 @@ fn writeBuildRules(
     }
 
     try std.fmt.format(writer, "\n}}", .{});
+    std.debug.print("Wrote {s}\n", .{out_path});
 }
 
 fn writeOnePackage(
