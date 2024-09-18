@@ -484,6 +484,18 @@ fn writeOnePackage(
         , .{ p.name, dir, p.name, p.name });
     }
 
+    // capture stdout, which will help zig build cache the build
+    try std.fmt.format(writer,
+        \\const @"{s}_out" = @"{s}".captureStdOut();
+        \\
+    , .{ p.name, p.name });
+
+    // capture stderr and discard it
+    try std.fmt.format(writer,
+        \\_ = @"{s}".captureStdErr();
+        \\
+    , .{p.name});
+
     for (p.depends) |navc| {
         if (isBasePackage(navc.name)) continue;
         if (isRecommendedPackage(navc.name)) continue;
@@ -524,6 +536,11 @@ fn writeOnePackage(
         \\b.getInstallStep().dependOn(&@"{s}_install".step);
         \\
     , .{p.name});
+
+    try std.fmt.format(writer,
+        \\b.getInstallStep().dependOn(&b.addInstallFileWithDir(@"{s}_out", .{{ .custom = "logs" }}, "{s}.log").step);
+        \\
+    , .{ p.name, p.name });
 }
 
 pub fn main() !void {
