@@ -14,9 +14,9 @@ const common = @import("common");
 const config_json = common.config_json;
 const download = common.download;
 
-const Assets = config_json.Assets;
-const Config = config_json.Config;
 const ConfigRoot = config_json.ConfigRoot;
+const Config = config_json.Config;
+const Assets = Config.Assets;
 const Repository = rdepinfo.Repository;
 
 fn usage() noreturn {
@@ -367,8 +367,10 @@ fn updateAssetEntry(
 }
 
 fn writeAssets(alloc: Allocator, path: []const u8, assets: Assets) !void {
-    var root = try config_json.readConfigRoot(alloc, path);
-    root.assets = assets;
+    const config_root = try config_json.readConfigRoot(alloc, path, .{});
+    var config = config_root.@"generate-build";
+
+    config.assets = assets;
 
     const bak = try std.fmt.allocPrint(alloc, "{s}.__bak__", .{path});
     std.fs.cwd().deleteFile(bak) catch {};
@@ -376,7 +378,7 @@ fn writeAssets(alloc: Allocator, path: []const u8, assets: Assets) !void {
     {
         const config_file = try std.fs.cwd().createFile(path, .{});
         defer config_file.close();
-        try std.json.stringify(root, .{ .whitespace = .indent_2 }, config_file.writer());
+        try std.json.stringify(config_root, .{ .whitespace = .indent_2 }, config_file.writer());
     }
     std.fs.cwd().deleteFile(bak) catch {};
 
