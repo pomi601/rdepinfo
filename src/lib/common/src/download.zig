@@ -6,7 +6,7 @@ pub const DownloadOptions = struct {
     path: []const []const u8,
 };
 pub const DownloadStatus = union(enum) {
-    ok: void,
+    ok,
     err: []const u8,
 };
 

@@ -55,7 +55,7 @@ pub const Parser = struct {
         string_node: StringNode,
         field_end: FieldEndNode,
         stanza_end: StanzaEndNode,
-        eof: void,
+        eof,
 
         pub fn format(self: Node, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
             _ = fmt;
