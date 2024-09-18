@@ -560,10 +560,11 @@ pub fn main() !void {
     const config_path = args[1];
     const out_dir_path = args[2];
 
-    const config = config_json.readConfigRoot(alloc, config_path) catch |err| {
+    const config_root = config_json.readConfigRoot(alloc, config_path, .{}) catch |err| {
         fatal("ERROR: failed to read config file '{s}': {s}", .{ config_path, @errorName(err) });
     };
-    const repos = config.@"update-deps".repos;
+    const config = config_root.@"generate-build";
+    const repos = config.repos;
     const assets_orig = config.assets;
 
     // this requires a threadsafe allocator

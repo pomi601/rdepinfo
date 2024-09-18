@@ -7,6 +7,8 @@ const common = @import("common");
 const config_json = common.config_json;
 const download = common.download;
 
+const Config = config_json.Config;
+
 fn usage() noreturn {
     std.debug.print(
         \\Usage: fetch-assets <config.json> <out_dir>
@@ -19,7 +21,7 @@ const NUM_ARGS = 2;
 fn hashOne(
     alloc: Allocator,
     asset_name: []const u8,
-    asset: config_json.OneAsset,
+    asset: Config.OneAsset,
     file_path: []const u8,
     config_path: []const u8,
     config_mutex: *Mutex,
@@ -64,10 +66,11 @@ fn hashOne(
         // write hash to file
         config_mutex.lock();
         defer config_mutex.unlock();
-        var config_root = config_json.readConfigRoot(alloc, config_path) catch |err| {
+        const config_root = config_json.readConfigRoot(alloc, config_path, .{}) catch |err| {
             fatal("ERROR: unable to read config file '{s}': {s}\n", .{ config_path, @errorName(err) });
         };
-        config_root.assets.map.put(alloc, asset_name, .{
+        var config = config_root.@"generate-build";
+        config.assets.map.put(alloc, asset_name, .{
             .url = asset.url,
             .hash = &std.fmt.bytesToHex(hash, .lower),
         }) catch |err| {
@@ -98,7 +101,7 @@ fn hashOne(
 
 fn downloadOne(
     asset_name: []const u8,
-    asset: config_json.OneAsset,
+    asset: Config.OneAsset,
     out_dir: []const u8,
     config_path: []const u8,
     mutex: *Mutex,
@@ -146,8 +149,9 @@ pub fn main() !void {
     const config_path = args[1];
     const out_dir_path = args[2];
 
-    const config: config_json.ConfigRoot = try config_json.readConfigRoot(arena.allocator(), config_path);
-    const assets: config_json.Assets = config.assets;
+    const config_root = try config_json.readConfigRoot(arena.allocator(), config_path, .{});
+    const config = config_root.@"generate-build";
+    const assets = config.assets;
 
     var pool: std.Thread.Pool = undefined;
     try std.Thread.Pool.init(&pool, .{ .allocator = alloc });
