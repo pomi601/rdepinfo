@@ -472,10 +472,12 @@ fn writeOnePackage(
 
     if (is_dir) {
         try std.fmt.format(writer,
-            \\_ = @"{s}".addDirectoryArg(b.path("{s}"));
+            \\const @"{s}_src" = b.addWriteFiles();
+            \\_ = @"{s}_src".addCopyDirectory(b.path("{s}"), "", .{{}});
+            \\_ = @"{s}".addDirectoryArg(@"{s}_src".getDirectory());
             \\@"{s}".step.name = "{s}";
             \\
-        , .{ p.name, dir, p.name, p.name });
+        , .{ p.name, p.name, dir, p.name, p.name, p.name, p.name });
     } else {
         try std.fmt.format(writer,
             \\_ = @"{s}".addFileArg(asset_dir.path(b, "{s}"));
