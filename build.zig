@@ -48,15 +48,15 @@ fn build_download_file(b: *Build, target: ResolvedTarget, optimize: OptimizeMode
     return exe;
 }
 
-fn build_discover_dependencies(
+fn build_generate_build(
     b: *Build,
     rdepinfo: *Module,
     target: ResolvedTarget,
     optimize: OptimizeMode,
 ) *Compile {
     const exe = b.addExecutable(.{
-        .name = "discover-dependencies",
-        .root_source_file = b.path("src/exe/discover-dependencies/main.zig"),
+        .name = "generate-build",
+        .root_source_file = b.path("src/exe/generate-build/main.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -174,14 +174,14 @@ pub fn build(b: *Build) !void {
     b.installArtifact(download_file);
     b.getInstallStep().dependOn(&download_file.step);
 
-    const discover_dependencies = build_discover_dependencies(
+    const generate_build = build_generate_build(
         b,
         mod,
         target,
         optimize,
     );
-    b.installArtifact(discover_dependencies);
-    b.getInstallStep().dependOn(&discover_dependencies.step);
+    b.installArtifact(generate_build);
+    b.getInstallStep().dependOn(&generate_build.step);
 
     // -- end tools ----------------------------------------------------------
 
