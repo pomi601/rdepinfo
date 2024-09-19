@@ -4,8 +4,8 @@ const mos = @import("mos");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const stable_list = @import("stable_list");
-const StringStorage = stable_list.IndexedStringStorage;
+const common = @import("common");
+const StringStorage = common.StringStorage;
 
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
@@ -55,7 +55,7 @@ pub fn isRecommendedPackage(name: []const u8) bool {
 /// package repository PACKAGES files.
 pub const Repository = struct {
     alloc: Allocator,
-    strings: ?StringStorage = null,
+    strings: StringStorage,
     packages: std.MultiArrayList(Package),
     parse_error: ?Parser.ParseError = null,
 
@@ -63,6 +63,7 @@ pub const Repository = struct {
     pub fn init(alloc: Allocator) !Repository {
         return .{
             .alloc = alloc,
+            .strings = try StringStorage.init(alloc, std.heap.page_allocator),
             .packages = .{},
         };
     }
@@ -82,7 +83,7 @@ pub const Repository = struct {
         for (slice.items(.linkingTo)) |x| {
             self.alloc.free(x);
         }
-        if (self.strings) |*s| s.deinit();
+        self.strings.deinit();
         self.packages.deinit(self.alloc);
         self.* = undefined;
     }
@@ -154,7 +155,7 @@ pub const Repository = struct {
     /// of packages found.
     pub fn read(self: *Repository, name: []const u8, source: []const u8) !usize {
         var count: usize = 0;
-        var parser = try parse.Parser.init(self.alloc);
+        var parser = try parse.Parser.init(self.alloc, &self.strings);
         defer parser.deinit();
         parser.parse(source) catch |err| switch (err) {
             error.ParseError => |e| {
@@ -166,27 +167,19 @@ pub const Repository = struct {
             },
         };
 
-        // take over parser string storage
-        var parser_strings = try parser.detachStrings();
-        if (self.strings) |*ss| {
-            try ss.claimOther(&parser_strings);
-        } else {
-            self.strings = parser_strings;
-        }
-        if (self.strings == null) return error.InvalidState;
-
         // reserve estimated space and free before exit (empirical from CRAN PACKAGES)
         try self.packages.ensureTotalCapacity(self.alloc, parser.nodes.items.len / 30);
         defer self.packages.shrinkAndFree(self.alloc, self.packages.len);
 
         // reserve estimated additional space for strings
-        try self.strings.?.ensureCapacity(parser.nodes.items.len / 30 * 16);
+        // FIXME: preallocate string storage earlier
+        // try self.strings.ensureCapacity(parser.nodes.items.len / 30 * 16);
 
         // reserve working list of []NameAndVersionConstraint
         var nav_list = try std.ArrayList(NameAndVersionConstraint).initCapacity(self.alloc, 16);
         defer nav_list.deinit();
 
-        const empty_package: Package = .{ .repository = try self.strings.?.append(name) };
+        const empty_package: Package = .{ .repository = try self.strings.append(name) };
         var result = empty_package;
 
         const nodes = parser.nodes.items;
@@ -206,22 +199,22 @@ pub const Repository = struct {
                 },
 
                 .field => |field| {
-                    if (mos.streql("Package", field.name)) {
-                        result.name = try parsePackageName(nodes, &idx, &self.strings.?);
-                    } else if (mos.streql("Version", field.name)) {
+                    if (std.mem.eql(u8, "Package", field.name)) {
+                        result.name = try parsePackageName(nodes, &idx, &self.strings);
+                    } else if (std.mem.eql(u8, "Version", field.name)) {
                         result.version = try parsePackageVersion(nodes, &idx);
                         idx -= 1; // backtrack
-                        result.version_string = try parsePackageVersionString(nodes, &idx, &self.strings.?);
-                    } else if (mos.streql("Depends", field.name)) {
+                        result.version_string = try parsePackageVersionString(nodes, &idx, &self.strings);
+                    } else if (std.mem.eql(u8, "Depends", field.name)) {
                         try parsePackages(nodes, &idx, &nav_list);
                         result.depends = try nav_list.toOwnedSlice();
-                    } else if (mos.streql("Suggests", field.name)) {
+                    } else if (std.mem.eql(u8, "Suggests", field.name)) {
                         try parsePackages(nodes, &idx, &nav_list);
                         result.suggests = try nav_list.toOwnedSlice();
-                    } else if (mos.streql("Imports", field.name)) {
+                    } else if (std.mem.eql(u8, "Imports", field.name)) {
                         try parsePackages(nodes, &idx, &nav_list);
                         result.imports = try nav_list.toOwnedSlice();
-                    } else if (mos.streql("LinkingTo", field.name)) {
+                    } else if (std.mem.eql(u8, "LinkingTo", field.name)) {
                         try parsePackages(nodes, &idx, &nav_list);
                         result.linkingTo = try nav_list.toOwnedSlice();
                     }
@@ -718,11 +711,13 @@ test "PACKAGES.gz" {
 
     var source: ?[]const u8 = try mos.file.readFileMaybeGzip(alloc, path);
     try testing.expect(source != null);
-    errdefer if (source) |s| alloc.free(s);
+    defer if (source) |s| alloc.free(s);
 
     var timer = try std.time.Timer.start();
 
-    var parser = try parse.Parser.init(alloc);
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+    var parser = try parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     parser.parse(source.?) catch |err| switch (err) {
         error.ParseError => {
@@ -971,7 +966,9 @@ test "versions with minus" {
         }
     }
     {
-        var parser = try parse.Parser.init(alloc);
+        var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+        defer strings.deinit();
+        var parser = try parse.Parser.init(alloc, &strings);
         defer parser.deinit();
         parser.parse(data) catch |err| switch (err) {
             error.ParseError => |e| {

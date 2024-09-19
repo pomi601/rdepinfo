@@ -90,6 +90,11 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     });
 
+    const common = b.dependency("common", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("common");
+
     const mos = b.dependency("mos", .{
         .target = target,
         .optimize = dep_optimize,
@@ -101,12 +106,6 @@ pub fn build(b: *Build) !void {
         .optimize = dep_optimize,
     }).module("cmdline");
     exe.root_module.addImport("cmdline", cmdline);
-
-    const stable_list = b.dependency("stable_list", .{
-        .target = target,
-        .optimize = dep_optimize,
-    }).module("stable_list");
-    exe.root_module.addImport("stable_list", stable_list);
 
     b.installArtifact(exe);
     b.getInstallStep().dependOn(&exe.step);
@@ -133,7 +132,7 @@ pub fn build(b: *Build) !void {
             .strip = true,
         });
         lib.root_module.addImport("mos", mos);
-        lib.root_module.addImport("stable_list", stable_list);
+        lib.root_module.addImport("common", common);
         lib.linkLibC();
 
         // just take the first one, it doesn't matter
@@ -160,7 +159,7 @@ pub fn build(b: *Build) !void {
         .optimize = optimize,
     });
     mod.addImport("mos", mos);
-    mod.addImport("stable_list", stable_list);
+    mod.addImport("common", common);
 
     // -- end module ---------------------------------------------------------
 
@@ -194,7 +193,7 @@ pub fn build(b: *Build) !void {
     });
     exe_check.root_module.addImport("mos", mos);
     exe_check.root_module.addImport("cmdline", cmdline);
-    exe_check.root_module.addImport("stable_list", stable_list);
+    exe_check.root_module.addImport("common", common);
 
     const check = b.step("check", "Check if rdepinfo compiles");
     check.dependOn(&exe_check.step);
@@ -219,7 +218,7 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    lib_unit_tests.root_module.addImport("stable_list", stable_list);
+    lib_unit_tests.root_module.addImport("common", common);
     lib_unit_tests.root_module.addImport("mos", mos);
     lib_unit_tests.linkLibC();
 
@@ -230,7 +229,7 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    exe_unit_tests.root_module.addImport("stable_list", stable_list);
+    exe_unit_tests.root_module.addImport("common", common);
     exe_unit_tests.root_module.addImport("mos", mos);
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -259,7 +258,7 @@ pub fn build(b: *Build) !void {
     })).step);
 
     dep_test_step.dependOn(&b.addRunArtifact(b.addTest(.{
-        .root_source_file = stable_list.root_source_file.?,
+        .root_source_file = common.root_source_file.?,
         .target = target,
         .optimize = dep_optimize,
     })).step);

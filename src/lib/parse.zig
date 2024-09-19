@@ -6,7 +6,7 @@ const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-const StringStorage = @import("stable_list").IndexedStringStorage;
+const StringStorage = @import("common").StringStorage;
 
 const version = @import("version.zig");
 const Version = version.Version;
@@ -19,7 +19,7 @@ const VersionConstraint = version.VersionConstraint;
 /// generated from a moderately complicated example.
 pub const Parser = struct {
     alloc: Allocator,
-    strings: ?StringStorage,
+    strings: *StringStorage,
     nodes: NodeList,
     parse_error: ?ParseError = null,
 
@@ -73,10 +73,10 @@ pub const Parser = struct {
         }
     };
 
-    pub fn init(alloc: Allocator) !Parser {
+    pub fn init(alloc: Allocator, string_storage: *StringStorage) !Parser {
         return .{
             .alloc = alloc,
-            .strings = try StringStorage.init(alloc, .{}),
+            .strings = string_storage,
             .nodes = std.ArrayList(Node).init(alloc),
             ._source = "",
             ._tokenizer = undefined,
@@ -86,17 +86,7 @@ pub const Parser = struct {
     pub fn deinit(self: *Parser) void {
         self._tokenizer.deinit();
         self.nodes.deinit();
-        if (self.strings) |*s| s.deinit();
         self.* = undefined;
-    }
-
-    /// Take over ownership of strings storage. Must call deinit using
-    /// the same allocator.
-    pub fn detachStrings(self: *Parser) !StringStorage {
-        if (self.strings) |s| {
-            self.strings = null;
-            return s;
-        } else return error.InvalidState;
     }
 
     pub fn numStanzas(self: Parser) usize {
@@ -293,22 +283,20 @@ pub const Parser = struct {
     }
 
     fn appendNode(self: *Parser, node: Node) error{ OutOfMemory, ParseError, InvalidState }!void {
-        if (self.strings) |*strings| {
-            var final = node;
-            switch (final) {
-                .string_node => |*s| {
-                    s.value = try strings.append(s.value);
-                },
-                .field => |*x| {
-                    x.name = try strings.append(x.name);
-                },
-                .name_and_version => |*x| {
-                    x.name = try strings.append(x.name);
-                },
-                else => {},
-            }
-            try self.nodes.append(final);
-        } else return error.InvalidState;
+        var final = node;
+        switch (final) {
+            .string_node => |*s| {
+                s.value = try self.strings.append(s.value);
+            },
+            .field => |*x| {
+                x.name = try self.strings.append(x.name);
+            },
+            .name_and_version => |*x| {
+                x.name = try self.strings.append(x.name);
+            },
+            else => {},
+        }
+        try self.nodes.append(final);
     }
 
     fn lexeme(self: *Parser, token: Token) error{ParseError}![]const u8 {

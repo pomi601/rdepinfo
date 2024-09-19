@@ -1,6 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 const parse = @import("./parse.zig");
+const common = @import("common");
+const StringStorage = common.StringStorage;
 
 test "parse" {
     const source =
@@ -38,7 +40,9 @@ test "parse" {
     ;
     const alloc = std.testing.allocator;
 
-    var parser = try parse.Parser.init(alloc);
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+    var parser = try parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     try parser.parse(source);
 
@@ -57,7 +61,9 @@ test "two stanzas" {
     ;
 
     const alloc = std.testing.allocator;
-    var parser = try parse.Parser.init(alloc);
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+    var parser = try parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     try parser.parse(source);
 
@@ -85,7 +91,9 @@ test "package and version" {
     ;
 
     const alloc = std.testing.allocator;
-    var parser = try parse.Parser.init(alloc);
+    var strings = try StringStorage.init(alloc, std.heap.page_allocator);
+    defer strings.deinit();
+    var parser = try parse.Parser.init(alloc, &strings);
     defer parser.deinit();
     try parser.parse(source);
 
@@ -142,15 +150,6 @@ test "tokenize version" {
     _ = tokenizer.next();
     const token = tokenizer.next();
     try testing.expectEqualStrings("3.2.1", token.lexeme(data).?);
-}
-
-test "tokenize license" {
-    return error.SkipZigTest;
-
-    // const data =
-    //     \\ License: MIT + file LICENSE
-    // ;
-    // try testTokenize(data, &.{ .identifier, .colon, .identifier, .plus, .identifier, .identifier, .eof });
 }
 
 test "tokenize R" {
