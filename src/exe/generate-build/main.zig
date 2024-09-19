@@ -91,7 +91,7 @@ fn readRepositories(alloc: Allocator, repos: []Config.Repo, out_dir: []const u8)
     return repository;
 }
 
-fn readPackageDirs(alloc: Allocator, dirs: []const []const u8) Repository {
+fn readPackageDirs(alloc: Allocator, dirs: []const []const u8) !Repository {
     var repo = try Repository.init(alloc);
 
     var i: usize = 0;
@@ -584,7 +584,9 @@ pub fn main() !void {
         std.debug.print("    {s}\n", .{d});
     }
 
-    const packages = readPackageDirs(alloc, package_dirs);
+    const packages = readPackageDirs(alloc, package_dirs) catch |err| {
+        fatal("ERROR: failed to read package directories: {s}\n", .{@errorName(err)});
+    };
     const merged = calculateDependencies(alloc, packages, cloud) catch |err| {
         fatal("ERROR: failed to calculate dependencies: {s}\n", .{@errorName(err)});
     };

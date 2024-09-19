@@ -94,6 +94,7 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
     }).module("common");
+    exe.root_module.addImport("common", common);
 
     const mos = b.dependency("mos", .{
         .target = target,
